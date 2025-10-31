@@ -31,7 +31,7 @@ class SkyWatcherUI:
         # 创建主窗口
         self.root = tk.Tk()
         self.root.title("SkyWatcher 设备监控")
-        self.root.geometry("1000x700")
+        self.root.geometry("1000x850")
         self.root.resizable(True, True)
         
         # 运行状态
@@ -162,9 +162,68 @@ class SkyWatcherUI:
         ttk.Button(quick_frame, text="西北 (Az=290° Alt=60°)",
                    command=lambda: self.quick_goto(290, 60)).grid(row=0, column=3, padx=5)
 
+        # === 手控板区域 ===
+        handpad_frame = ttk.LabelFrame(main_frame, text="手控板 (手动控制)", padding="10")
+        handpad_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=5)
+
+        # 速度选择
+        speed_frame = ttk.Frame(handpad_frame)
+        speed_frame.grid(row=0, column=0, columnspan=3, pady=(0, 10))
+
+        ttk.Label(speed_frame, text="速度:").grid(row=0, column=0, padx=5)
+        self.speed_var = tk.StringVar(value="慢速")
+        speed_combo = ttk.Combobox(speed_frame, textvariable=self.speed_var,
+                                   values=["慢速", "中速", "快速"],
+                                   state="readonly", width=10)
+        speed_combo.grid(row=0, column=1, padx=5)
+
+        # 速度映射
+        self.speed_map = {
+            "慢速": "010000",  # 慢速
+            "中速": "020000",  # 中速
+            "快速": "040000"   # 快速
+        }
+
+        # 方向控制按钮布局 (十字形)
+        control_frame = ttk.Frame(handpad_frame)
+        control_frame.grid(row=1, column=0, columnspan=3, pady=10)
+
+        # 北 (上)
+        self.btn_north = ttk.Button(control_frame, text="▲ 北", width=10,
+                                    command=lambda: self.start_move('north'))
+        self.btn_north.grid(row=0, column=1, padx=5, pady=5)
+        self.btn_north.bind('<ButtonRelease-1>', lambda e: self.stop_move())
+
+        # 西 (左)
+        self.btn_west = ttk.Button(control_frame, text="◄ 西", width=10,
+                                   command=lambda: self.start_move('west'))
+        self.btn_west.grid(row=1, column=0, padx=5, pady=5)
+        self.btn_west.bind('<ButtonRelease-1>', lambda e: self.stop_move())
+
+        # 停止按钮 (中间)
+        self.btn_stop = ttk.Button(control_frame, text="■ 停止", width=10,
+                                   command=self.stop_move)
+        self.btn_stop.grid(row=1, column=1, padx=5, pady=5)
+
+        # 东 (右)
+        self.btn_east = ttk.Button(control_frame, text="► 东", width=10,
+                                   command=lambda: self.start_move('east'))
+        self.btn_east.grid(row=1, column=2, padx=5, pady=5)
+        self.btn_east.bind('<ButtonRelease-1>', lambda e: self.stop_move())
+
+        # 南 (下)
+        self.btn_south = ttk.Button(control_frame, text="▼ 南", width=10,
+                                    command=lambda: self.start_move('south'))
+        self.btn_south.grid(row=2, column=1, padx=5, pady=5)
+        self.btn_south.bind('<ButtonRelease-1>', lambda e: self.stop_move())
+
+        # 说明文字
+        ttk.Label(handpad_frame, text="提示: 按住方向按钮移动,松开自动停止",
+                 foreground="gray").grid(row=2, column=0, columnspan=3, pady=(10, 0))
+
         # === 日志区域 ===
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
-        log_frame.grid(row=4, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        log_frame.grid(row=5, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
@@ -174,7 +233,7 @@ class SkyWatcherUI:
         
         # === 控制按钮区域 ===
         button_frame = ttk.Frame(main_frame, padding="10")
-        button_frame.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=5)
+        button_frame.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=5)
         
         # 开始/停止按钮
         self.start_button = ttk.Button(button_frame, text="开始监控", command=self.start_monitoring)
@@ -373,6 +432,45 @@ class SkyWatcherUI:
 
         # 执行GOTO
         self.goto_altaz()
+
+    def start_move(self, direction: str):
+        """
+        开始手动移动
+
+        Args:
+            direction: 方向 ('north', 'south', 'east', 'west')
+        """
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        # 获取当前速度
+        speed_name = self.speed_var.get()
+        speed = self.speed_map.get(speed_name, "010000")
+
+        self.log(f"开始移动: {direction} (速度: {speed_name})")
+
+        # 根据方向调用对应的移动函数
+        if direction == 'north':
+            # 北 = DEC正向
+            self.synscan.move_dec_positive(speed)
+        elif direction == 'south':
+            # 南 = DEC反向
+            self.synscan.move_dec_negative(speed)
+        elif direction == 'east':
+            # 东 = RA正向
+            self.synscan.move_ra_positive(speed)
+        elif direction == 'west':
+            # 西 = RA反向
+            self.synscan.move_ra_negative(speed)
+
+    def stop_move(self):
+        """停止手动移动"""
+        if not self.synscan:
+            return
+
+        self.log("停止移动")
+        self.synscan.stop_all()
 
     def run(self):
         """运行UI主循环"""

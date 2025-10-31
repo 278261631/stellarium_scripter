@@ -246,6 +246,58 @@ class SynScanProtocol:
         self.stop(self.AXIS_RA)
         self.stop(self.AXIS_DEC)
 
+    def set_motion_mode(self, axis: str, direction: int, speed: str = "010000") -> bool:
+        """
+        设置轴的运动模式(手动控制)
+
+        Args:
+            axis: 轴 ('1'=RA, '2'=DEC)
+            direction: 方向 (0=正向, 1=反向)
+            speed: 速度(6位16进制字符串), 默认慢速
+
+        Returns:
+            bool: 是否成功
+        """
+        # 1. 设置速度
+        speed_response = self.send_command(axis, 'I', speed)
+        if speed_response is None:
+            self.logger.error(f"设置速度失败: axis={axis}")
+            return False
+
+        # 2. 设置运动方向
+        # P命令: P0 = 正向, P1 = 反向
+        dir_cmd = f"{direction}"
+        dir_response = self.send_command(axis, 'P', dir_cmd)
+        if dir_response is None:
+            self.logger.error(f"设置方向失败: axis={axis}, direction={direction}")
+            return False
+
+        # 3. 启动固定速度运动
+        # G命令: 启动固定速度运动
+        move_response = self.send_command(axis, 'G')
+        if move_response is None:
+            self.logger.error(f"启动运动失败: axis={axis}")
+            return False
+
+        self.logger.debug(f"轴 {axis} 开始运动: 方向={direction}, 速度={speed}")
+        return True
+
+    def move_ra_positive(self, speed: str = "010000") -> bool:
+        """RA轴正向运动(向东)"""
+        return self.set_motion_mode(self.AXIS_RA, 0, speed)
+
+    def move_ra_negative(self, speed: str = "010000") -> bool:
+        """RA轴反向运动(向西)"""
+        return self.set_motion_mode(self.AXIS_RA, 1, speed)
+
+    def move_dec_positive(self, speed: str = "010000") -> bool:
+        """DEC轴正向运动(向北)"""
+        return self.set_motion_mode(self.AXIS_DEC, 0, speed)
+
+    def move_dec_negative(self, speed: str = "010000") -> bool:
+        """DEC轴反向运动(向南)"""
+        return self.set_motion_mode(self.AXIS_DEC, 1, speed)
+
     def goto_ra_dec(self, ra_deg: float, dec_deg: float) -> bool:
         """
         GOTO到指定的RA/DEC位置
