@@ -270,18 +270,30 @@ class SynScanProtocol:
 
         self.logger.info(f"GOTO: RA={ra_deg:.4f}° ({ra_hex}), DEC={dec_deg:.4f}° ({dec_hex})")
 
-        # 发送GOTO命令
+        # 1. 先设置GOTO速度 (使用较慢的速度以确保安全)
+        # 速度值: 0x000001 到 0xFFFFFF, 推荐使用中等速度 0x020000
+        goto_speed = "020000"  # 中等速度
+
+        self.logger.debug(f"设置GOTO速度: {goto_speed}")
+        speed_ra = self.send_command(self.AXIS_RA, 'I', goto_speed)
+        speed_dec = self.send_command(self.AXIS_DEC, 'I', goto_speed)
+
+        if speed_ra is None or speed_dec is None:
+            self.logger.error("设置GOTO速度失败")
+            return False
+
+        # 2. 设置目标位置
         ra_response = self.send_command(self.AXIS_RA, 'S', ra_hex)
         dec_response = self.send_command(self.AXIS_DEC, 'S', dec_hex)
 
         if ra_response is not None and dec_response is not None:
-            # 启动运动
+            # 3. 启动GOTO运动
             self.send_command(self.AXIS_RA, 'J')
             self.send_command(self.AXIS_DEC, 'J')
-            self.logger.info("GOTO命令已发送")
+            self.logger.info("✓ GOTO命令已发送,设备开始移动")
             return True
         else:
-            self.logger.error("GOTO命令失败")
+            self.logger.error("✗ 设置目标位置失败")
             return False
 
     def altaz_to_radec(self, az_deg: float, alt_deg: float,
