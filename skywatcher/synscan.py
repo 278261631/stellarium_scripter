@@ -108,23 +108,38 @@ class SynScanProtocol:
             
             # 发送命令
             self.serial.write(cmd.encode('ascii'))
-            
-            # 读取响应 (以'='或'!'结尾)
+
+            # 读取响应 (格式: =数据\r 或 !\r)
             response = ""
             start_time = time.time()
+
+            # 先读取第一个字符(应该是'='或'!')
             while time.time() - start_time < self.timeout:
                 if self.serial.in_waiting > 0:
                     char = self.serial.read(1).decode('ascii')
                     response += char
                     if char in ['=', '!']:
+                        # 找到开始符,继续读取数据直到\r
+                        while time.time() - start_time < self.timeout:
+                            if self.serial.in_waiting > 0:
+                                char = self.serial.read(1).decode('ascii')
+                                response += char
+                                if char == '\r':
+                                    break
+                            else:
+                                time.sleep(0.01)
                         break
-            
+                else:
+                    time.sleep(0.01)
+
             self.logger.debug(f"收到响应: {repr(response)}")
-            
+
             # 检查响应
-            if response.endswith('='):
-                return response[:-1]  # 移除结尾的'='
-            elif response.endswith('!'):
+            if response.startswith('='):
+                # 提取数据部分 (去掉开头的'='和结尾的'\r')
+                data = response[1:].rstrip('\r\n')
+                return data
+            elif response.startswith('!'):
                 self.logger.warning(f"命令错误: {response}")
                 return None
             else:
