@@ -31,8 +31,8 @@ def main():
     """主函数"""
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='SkyWatcher设备监控程序')
-    parser.add_argument('--port', type=str, default='COM3', 
-                        help='串口名称 (默认: COM3)')
+    parser.add_argument('--port', type=str, default='COM11',
+                        help='串口名称 (默认: COM11)')
     parser.add_argument('--baudrate', type=int, default=9600,
                         help='波特率 (默认: 9600)')
     parser.add_argument('--stellarium', type=str, default='http://127.0.0.1:8090',
