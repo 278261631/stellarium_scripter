@@ -335,6 +335,18 @@ class SkyWatcherUI:
             self.log(f"GOTO Az/Alt: 方位角={az_deg}° 高度角={alt_deg}°")
 
             if self.synscan:
+                # 先转换为赤道坐标
+                ra_deg, dec_deg = self.synscan.altaz_to_radec(az_deg, alt_deg)
+
+                # 更新RA/DEC输入框
+                self.goto_ra_entry.delete(0, tk.END)
+                self.goto_ra_entry.insert(0, f"{ra_deg:.4f}")
+                self.goto_dec_entry.delete(0, tk.END)
+                self.goto_dec_entry.insert(0, f"{dec_deg:.4f}")
+
+                self.log(f"  转换为: RA={ra_deg:.4f}° DEC={dec_deg:.4f}°")
+
+                # 执行GOTO
                 if self.synscan.goto_altaz(az_deg, alt_deg):
                     self.log("✓ GOTO命令已发送")
                 else:
