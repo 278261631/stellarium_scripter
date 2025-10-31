@@ -144,7 +144,7 @@ class StellariumController:
     def draw_box_at_position(self, azimuth: float, altitude: float, size: float = 5.0):
         """
         在指定的方位角和高度角位置绘制方框
-        使用markerHorizon直接在地平坐标系中绘制
+        使用LabelMgr.labelHorizon在地平坐标系中绘制标签
 
         Args:
             azimuth: 方位角 (0-360度, 0为北, 90为东, 180为南, 270为西)
@@ -161,23 +161,19 @@ class StellariumController:
             (azimuth - half_size, altitude + half_size),  # 左上
         ]
 
-        # 构建Stellarium脚本 - 使用markerHorizon直接绘制
+        # 构建Stellarium脚本 - 使用LabelMgr.labelHorizon绘制
         script_lines = []
 
-        # 绘制四个角的标记
+        # 绘制四个角的标签
         for i, (az, alt) in enumerate(corners):
-            # 格式化为度分秒格式
-            az_str = f"{az}d"
-            alt_str = f"{alt}d"
+            # 使用方块符号,红色
             script_lines.append(
-                f'MarkerMgr.markerHorizon("{az_str}", "{alt_str}", true, "circle", "red", 8);'
+                f'LabelMgr.labelHorizon("■", {az}, {alt}, true, 16, "#ff0000");'
             )
 
         # 在中心绘制一个十字标记
-        center_az_str = f"{azimuth}d"
-        center_alt_str = f"{altitude}d"
         script_lines.append(
-            f'MarkerMgr.markerHorizon("{center_az_str}", "{center_alt_str}", true, "cross", "yellow", 12);'
+            f'LabelMgr.labelHorizon("✚", {azimuth}, {altitude}, true, 20, "#ffff00");'
         )
 
         script = "\n".join(script_lines)
@@ -187,9 +183,12 @@ class StellariumController:
         return self.execute_script(script)
     
     def clear_markers(self):
-        """清除所有标记"""
-        self.logger.info("清除所有标记")
-        script = "MarkerMgr.deleteAllMarkers();"
+        """清除所有标记和标签"""
+        self.logger.info("清除所有标记和标签")
+        script = """
+LabelMgr.deleteAllLabels();
+MarkerMgr.deleteAllMarkers();
+"""
         return self.execute_script(script)
     
     def run_periodic_drawing(self, azimuth: float, altitude: float, interval: int = 2, duration: Optional[int] = None):
