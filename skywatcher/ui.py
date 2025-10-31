@@ -31,7 +31,7 @@ class SkyWatcherUI:
         # 创建主窗口
         self.root = tk.Tk()
         self.root.title("SkyWatcher 设备监控")
-        self.root.geometry("800x600")
+        self.root.geometry("1000x700")
         self.root.resizable(True, True)
         
         # 运行状态
@@ -54,7 +54,7 @@ class SkyWatcherUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(4, weight=1)
         
         # === 连接状态区域 ===
         status_frame = ttk.LabelFrame(main_frame, text="连接状态", padding="10")
@@ -111,10 +111,60 @@ class SkyWatcherUI:
         ttk.Label(coord_frame, text="DEC (度):").grid(row=1, column=2, sticky=tk.W, padx=20)
         self.dec_deg_label = ttk.Label(coord_frame, text="---°", font=("Courier", 10))
         self.dec_deg_label.grid(row=1, column=3, sticky=tk.W, padx=10)
-        
+
+        # === GOTO控制区域 ===
+        goto_frame = ttk.LabelFrame(main_frame, text="GOTO控制", padding="10")
+        goto_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=5)
+
+        # GOTO坐标输入
+        ttk.Label(goto_frame, text="RA (度):").grid(row=0, column=0, sticky=tk.W)
+        self.goto_ra_entry = ttk.Entry(goto_frame, width=12)
+        self.goto_ra_entry.grid(row=0, column=1, padx=5)
+        self.goto_ra_entry.insert(0, "0.0")
+
+        ttk.Label(goto_frame, text="DEC (度):").grid(row=0, column=2, sticky=tk.W, padx=(20, 0))
+        self.goto_dec_entry = ttk.Entry(goto_frame, width=12)
+        self.goto_dec_entry.grid(row=0, column=3, padx=5)
+        self.goto_dec_entry.insert(0, "0.0")
+
+        # GOTO按钮
+        ttk.Button(goto_frame, text="GOTO (RA/DEC)", command=self.goto_radec).grid(row=0, column=4, padx=10)
+
+        # 分隔线
+        ttk.Separator(goto_frame, orient='vertical').grid(row=0, column=5, sticky=(tk.N, tk.S), padx=10)
+
+        # 地平坐标输入
+        ttk.Label(goto_frame, text="方位角:").grid(row=0, column=6, sticky=tk.W)
+        self.goto_az_entry = ttk.Entry(goto_frame, width=10)
+        self.goto_az_entry.grid(row=0, column=7, padx=5)
+        self.goto_az_entry.insert(0, "0")
+
+        ttk.Label(goto_frame, text="高度角:").grid(row=0, column=8, sticky=tk.W, padx=(10, 0))
+        self.goto_alt_entry = ttk.Entry(goto_frame, width=10)
+        self.goto_alt_entry.grid(row=0, column=9, padx=5)
+        self.goto_alt_entry.insert(0, "30")
+
+        # GOTO地平坐标按钮
+        ttk.Button(goto_frame, text="GOTO (Az/Alt)", command=self.goto_altaz).grid(row=0, column=10, padx=10)
+
+        # 快速定位按钮
+        quick_frame = ttk.Frame(goto_frame)
+        quick_frame.grid(row=1, column=0, columnspan=11, pady=(10, 0))
+
+        ttk.Label(quick_frame, text="快速定位:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+
+        ttk.Button(quick_frame, text="北方 (Az=0° Alt=10°)",
+                   command=lambda: self.quick_goto(0, 10)).grid(row=0, column=1, padx=5)
+
+        ttk.Button(quick_frame, text="西方 (Az=260° Alt=30°)",
+                   command=lambda: self.quick_goto(260, 30)).grid(row=0, column=2, padx=5)
+
+        ttk.Button(quick_frame, text="西北 (Az=290° Alt=60°)",
+                   command=lambda: self.quick_goto(290, 60)).grid(row=0, column=3, padx=5)
+
         # === 日志区域 ===
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
-        log_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        log_frame.grid(row=4, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
@@ -124,7 +174,7 @@ class SkyWatcherUI:
         
         # === 控制按钮区域 ===
         button_frame = ttk.Frame(main_frame, padding="10")
-        button_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=5)
+        button_frame.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=5)
         
         # 开始/停止按钮
         self.start_button = ttk.Button(button_frame, text="开始监控", command=self.start_monitoring)
@@ -256,7 +306,62 @@ class SkyWatcherUI:
             self.running = False
             self.start_button.config(state=tk.NORMAL)
             self.stop_button.config(state=tk.DISABLED)
-            
+
+    def goto_radec(self):
+        """GOTO到指定的RA/DEC坐标"""
+        try:
+            ra_deg = float(self.goto_ra_entry.get())
+            dec_deg = float(self.goto_dec_entry.get())
+
+            self.log(f"GOTO RA/DEC: RA={ra_deg}° DEC={dec_deg}°")
+
+            if self.synscan:
+                if self.synscan.goto_ra_dec(ra_deg, dec_deg):
+                    self.log("✓ GOTO命令已发送")
+                else:
+                    self.log("✗ GOTO命令失败")
+            else:
+                self.log("✗ 设备未连接")
+
+        except ValueError:
+            self.log("✗ 坐标格式错误,请输入数字")
+
+    def goto_altaz(self):
+        """GOTO到指定的地平坐标"""
+        try:
+            az_deg = float(self.goto_az_entry.get())
+            alt_deg = float(self.goto_alt_entry.get())
+
+            self.log(f"GOTO Az/Alt: 方位角={az_deg}° 高度角={alt_deg}°")
+
+            if self.synscan:
+                if self.synscan.goto_altaz(az_deg, alt_deg):
+                    self.log("✓ GOTO命令已发送")
+                else:
+                    self.log("✗ GOTO命令失败")
+            else:
+                self.log("✗ 设备未连接")
+
+        except ValueError:
+            self.log("✗ 坐标格式错误,请输入数字")
+
+    def quick_goto(self, az_deg: float, alt_deg: float):
+        """
+        快速GOTO到预设位置
+
+        Args:
+            az_deg: 方位角(度)
+            alt_deg: 高度角(度)
+        """
+        # 更新输入框
+        self.goto_az_entry.delete(0, tk.END)
+        self.goto_az_entry.insert(0, str(az_deg))
+        self.goto_alt_entry.delete(0, tk.END)
+        self.goto_alt_entry.insert(0, str(alt_deg))
+
+        # 执行GOTO
+        self.goto_altaz()
+
     def run(self):
         """运行UI主循环"""
         self.root.mainloop()

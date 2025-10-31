@@ -246,3 +246,115 @@ class SynScanProtocol:
         self.stop(self.AXIS_RA)
         self.stop(self.AXIS_DEC)
 
+    def goto_ra_dec(self, ra_deg: float, dec_deg: float) -> bool:
+        """
+        GOTO到指定的RA/DEC位置
+
+        Args:
+            ra_deg: 赤经(度) 0-360
+            dec_deg: 赤纬(度) -90到+90
+
+        Returns:
+            bool: 是否成功
+        """
+        # 转换DEC: -90到+90 -> 0到360
+        dec_deg_normalized = dec_deg if dec_deg >= 0 else dec_deg + 360
+
+        # 转换为步进值
+        ra_steps = self.degrees_to_steps(ra_deg)
+        dec_steps = self.degrees_to_steps(dec_deg_normalized)
+
+        # 转换为6位16进制字符串
+        ra_hex = f"{ra_steps:06X}"
+        dec_hex = f"{dec_steps:06X}"
+
+        self.logger.info(f"GOTO: RA={ra_deg:.4f}° ({ra_hex}), DEC={dec_deg:.4f}° ({dec_hex})")
+
+        # 发送GOTO命令
+        ra_response = self.send_command(self.AXIS_RA, 'S', ra_hex)
+        dec_response = self.send_command(self.AXIS_DEC, 'S', dec_hex)
+
+        if ra_response is not None and dec_response is not None:
+            # 启动运动
+            self.send_command(self.AXIS_RA, 'J')
+            self.send_command(self.AXIS_DEC, 'J')
+            self.logger.info("GOTO命令已发送")
+            return True
+        else:
+            self.logger.error("GOTO命令失败")
+            return False
+
+    def altaz_to_radec(self, az_deg: float, alt_deg: float,
+                       lat_deg: float = 40.0, lon_deg: float = 120.0) -> Tuple[float, float]:
+        """
+        将地平坐标(方位角/高度角)转换为赤道坐标(RA/DEC)
+        使用简化的转换公式(假设当前时间)
+
+        Args:
+            az_deg: 方位角(度) 0=北, 90=东, 180=南, 270=西
+            alt_deg: 高度角(度) 0=地平线, 90=天顶
+            lat_deg: 观测地纬度(度)
+            lon_deg: 观测地经度(度)
+
+        Returns:
+            (RA, DEC) 元组,单位为度
+        """
+        import math
+        from datetime import datetime, timezone
+
+        # 转换为弧度
+        az_rad = math.radians(az_deg)
+        alt_rad = math.radians(alt_deg)
+        lat_rad = math.radians(lat_deg)
+
+        # 计算赤纬 (DEC)
+        sin_dec = math.sin(alt_rad) * math.sin(lat_rad) + \
+                  math.cos(alt_rad) * math.cos(lat_rad) * math.cos(az_rad)
+        dec_rad = math.asin(sin_dec)
+        dec_deg = math.degrees(dec_rad)
+
+        # 计算时角 (Hour Angle)
+        cos_ha = (math.sin(alt_rad) - math.sin(lat_rad) * math.sin(dec_rad)) / \
+                 (math.cos(lat_rad) * math.cos(dec_rad))
+        cos_ha = max(-1.0, min(1.0, cos_ha))  # 限制在[-1, 1]
+        ha_rad = math.acos(cos_ha)
+
+        # 根据方位角确定时角的符号
+        if math.sin(az_rad) > 0:  # 东边
+            ha_rad = -ha_rad
+
+        ha_deg = math.degrees(ha_rad)
+
+        # 计算当前恒星时 (简化计算)
+        now = datetime.now(timezone.utc)
+        jd = 2451545.0 + (now - datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc)).total_seconds() / 86400.0
+        gmst = (280.46061837 + 360.98564736629 * (jd - 2451545.0)) % 360.0
+        lst = (gmst + lon_deg) % 360.0
+
+        # 计算赤经 (RA)
+        ra_deg = (lst - ha_deg) % 360.0
+
+        self.logger.debug(f"地平坐标转换: Az={az_deg}° Alt={alt_deg}° -> RA={ra_deg:.4f}° DEC={dec_deg:.4f}°")
+
+        return (ra_deg, dec_deg)
+
+    def goto_altaz(self, az_deg: float, alt_deg: float,
+                   lat_deg: float = 40.0, lon_deg: float = 120.0) -> bool:
+        """
+        GOTO到指定的地平坐标位置
+
+        Args:
+            az_deg: 方位角(度) 0=北, 90=东, 180=南, 270=西
+            alt_deg: 高度角(度) 0=地平线, 90=天顶
+            lat_deg: 观测地纬度(度)
+            lon_deg: 观测地经度(度)
+
+        Returns:
+            bool: 是否成功
+        """
+        # 转换为赤道坐标
+        ra_deg, dec_deg = self.altaz_to_radec(az_deg, alt_deg, lat_deg, lon_deg)
+
+        # GOTO
+        return self.goto_ra_dec(ra_deg, dec_deg)
+
