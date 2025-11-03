@@ -330,17 +330,21 @@ class SkyWatcherUI:
                     position = self.synscan.get_ra_dec()
                     if position:
                         ra_deg, dec_deg = position
-                        
+
                         # 更新UI
                         self.root.after(0, lambda: self.update_position(ra_deg, dec_deg))
-                        
+
                         # 同步到Stellarium
                         if self.stellarium_sync:
                             self.stellarium_sync.update_telescope_position(ra_deg, dec_deg)
-                        
+
                         self.root.after(0, lambda: self.log(f"位置: RA={ra_deg:.2f}° DEC={dec_deg:.2f}°"))
                     else:
-                        self.root.after(0, lambda: self.log("获取位置失败"))
+                        # 获取详细的错误信息
+                        ra_steps = self.synscan.get_position(self.synscan.AXIS_RA)
+                        dec_steps = self.synscan.get_position(self.synscan.AXIS_DEC)
+                        error_msg = f"获取位置失败 - RA步进: {ra_steps}, DEC步进: {dec_steps}"
+                        self.root.after(0, lambda msg=error_msg: self.log(msg))
                 
                 time.sleep(1)  # 每秒更新一次
                 

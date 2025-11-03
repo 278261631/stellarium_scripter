@@ -164,10 +164,10 @@ class SynScanProtocol:
     def get_position(self, axis: str) -> Optional[int]:
         """
         获取轴位置(原始步进值)
-        
+
         Args:
             axis: 轴 ('1'=RA, '2'=DEC)
-            
+
         Returns:
             位置步进值,失败返回None
         """
@@ -177,9 +177,11 @@ class SynScanProtocol:
                 # 响应格式: 6位16进制数
                 position = int(response, 16)
                 return position
-            except ValueError:
-                self.logger.error(f"解析位置失败: {response}")
+            except ValueError as e:
+                self.logger.error(f"解析位置失败 - 轴:{axis}, 响应:'{response}', 错误:{e}")
                 return None
+        else:
+            self.logger.error(f"获取位置失败 - 轴:{axis}, 无响应或响应为空")
         return None
     
     def steps_to_degrees(self, steps: int) -> float:
@@ -211,26 +213,50 @@ class SynScanProtocol:
     def get_ra_dec(self) -> Optional[Tuple[float, float]]:
         """
         获取当前RA/DEC位置(度)
-        
+
         Returns:
             (RA, DEC) 元组,单位为度,失败返回None
+            RA: 0-360°
+            DEC: -90到+90°
         """
         ra_steps = self.get_position(self.AXIS_RA)
         dec_steps = self.get_position(self.AXIS_DEC)
-        
+
+        if ra_steps is None:
+            self.logger.error("获取RA位置失败")
+        if dec_steps is None:
+            self.logger.error("获取DEC位置失败")
+
         if ra_steps is not None and dec_steps is not None:
-            # 转换为度
+            # RA: 转换为0-360度
             ra_deg = self.steps_to_degrees(ra_steps)
+
+            # DEC: 转换为度,然后映射到-90到+90
             dec_deg = self.steps_to_degrees(dec_steps)
-            
-            # DEC需要转换为-90到+90
-            if dec_deg > 180:
-                dec_deg = dec_deg - 360
-            
+
+            # DEC的映射:
+            # 0-90°   -> 0到+90°   (北半球)
+            # 90-180° -> +90到0°   (过北极点)
+            # 180-270° -> 0到-90°  (南半球)
+            # 270-360° -> -90到0°  (过南极点)
+
+            if dec_deg <= 90:
+                # 0-90° -> 0到+90°
+                dec_deg_normalized = dec_deg
+            elif dec_deg <= 180:
+                # 90-180° -> +90到0°
+                dec_deg_normalized = 180 - dec_deg
+            elif dec_deg <= 270:
+                # 180-270° -> 0到-90°
+                dec_deg_normalized = 180 - dec_deg
+            else:
+                # 270-360° -> -90到0°
+                dec_deg_normalized = dec_deg - 360
+
             self.current_ra = ra_deg
-            self.current_dec = dec_deg
-            
-            return (ra_deg, dec_deg)
+            self.current_dec = dec_deg_normalized
+
+            return (ra_deg, dec_deg_normalized)
         return None
     
     def get_version(self) -> Optional[str]:
@@ -341,8 +367,13 @@ class SynScanProtocol:
         Returns:
             bool: 是否成功
         """
-        # 转换DEC: -90到+90 -> 0到360
-        dec_deg_normalized = dec_deg if dec_deg >= 0 else dec_deg + 360
+        # 转换DEC: -90到+90 -> 0到360 (设备内部表示)
+        # -90到0°   -> 270到360°
+        # 0到+90°   -> 0到90°
+        if dec_deg >= 0:
+            dec_deg_normalized = dec_deg
+        else:
+            dec_deg_normalized = dec_deg + 360
 
         # 转换为步进值
         ra_steps = self.degrees_to_steps(ra_deg)
