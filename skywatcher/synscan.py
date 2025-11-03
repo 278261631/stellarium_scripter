@@ -71,6 +71,17 @@ class SynScanProtocol:
             )
             self.logger.info(f"已连接到 {self.port}, 波特率: {self.baudrate}")
             time.sleep(0.5)  # 等待连接稳定
+
+            # 初始化轴 (必须!)
+            self.logger.info("初始化轴...")
+            ra_init = self.send_command(self.AXIS_RA, 'F')
+            dec_init = self.send_command(self.AXIS_DEC, 'F')
+
+            if ra_init is not None and dec_init is not None:
+                self.logger.info("✓ 轴初始化成功")
+            else:
+                self.logger.warning("⚠ 轴初始化失败,但继续连接")
+
             return True
         except Exception as e:
             self.logger.error(f"连接失败: {e}")
@@ -246,7 +257,7 @@ class SynScanProtocol:
         self.stop(self.AXIS_RA)
         self.stop(self.AXIS_DEC)
 
-    def set_motion_mode(self, axis: str, direction: int, speed: str = "010000") -> bool:
+    def set_motion_mode(self, axis: str, direction: int, speed: str = "000100") -> bool:
         """
         设置轴的运动模式(手动控制)
 
@@ -258,45 +269,66 @@ class SynScanProtocol:
         Returns:
             bool: 是否成功
         """
-        # 1. 设置速度
-        speed_response = self.send_command(axis, 'I', speed)
-        if speed_response is None:
-            self.logger.error(f"设置速度失败: axis={axis}")
-            return False
-
-        # 2. 设置运动方向
-        # P命令: P0 = 正向, P1 = 反向
-        dir_cmd = f"{direction}"
-        dir_response = self.send_command(axis, 'P', dir_cmd)
+        # 正确的命令序列 (参考MiniEQ Debug Tool):
+        # 1. 设置方向: :I{axis}{direction}
+        dir_response = self.send_command(axis, 'I', str(direction))
         if dir_response is None:
             self.logger.error(f"设置方向失败: axis={axis}, direction={direction}")
             return False
 
-        # 3. 启动固定速度运动
-        # G命令: 启动固定速度运动
-        move_response = self.send_command(axis, 'G')
+        # 2. 设置速度: :I{axis}{speed}
+        speed_response = self.send_command(axis, 'I', speed)
+        if speed_response is None:
+            self.logger.error(f"设置速度失败: axis={axis}, speed={speed}")
+            return False
+
+        # 3. 启动运动: :J{axis}
+        move_response = self.send_command(axis, 'J')
         if move_response is None:
             self.logger.error(f"启动运动失败: axis={axis}")
             return False
 
-        self.logger.debug(f"轴 {axis} 开始运动: 方向={direction}, 速度={speed}")
+        self.logger.info(f"✓ 轴 {axis} 开始运动: 方向={'正向' if direction == 0 else '反向'}, 速度={speed}")
         return True
 
-    def move_ra_positive(self, speed: str = "010000") -> bool:
+    def move_ra_positive(self, speed: str = "000100") -> bool:
         """RA轴正向运动(向东)"""
         return self.set_motion_mode(self.AXIS_RA, 0, speed)
 
-    def move_ra_negative(self, speed: str = "010000") -> bool:
+    def move_ra_negative(self, speed: str = "000100") -> bool:
         """RA轴反向运动(向西)"""
         return self.set_motion_mode(self.AXIS_RA, 1, speed)
 
-    def move_dec_positive(self, speed: str = "010000") -> bool:
+    def move_dec_positive(self, speed: str = "000100") -> bool:
         """DEC轴正向运动(向北)"""
         return self.set_motion_mode(self.AXIS_DEC, 0, speed)
 
-    def move_dec_negative(self, speed: str = "010000") -> bool:
+    def move_dec_negative(self, speed: str = "000100") -> bool:
         """DEC轴反向运动(向南)"""
         return self.set_motion_mode(self.AXIS_DEC, 1, speed)
+
+    def set_tracking_mode(self, mode: int = 1) -> bool:
+        """
+        设置跟踪模式
+
+        Args:
+            mode: 跟踪模式
+                  0 = 关闭跟踪
+                  1 = 恒星跟踪 (Sidereal)
+                  2 = 太阳跟踪 (Solar)
+                  3 = 月球跟踪 (Lunar)
+
+        Returns:
+            bool: 是否成功
+        """
+        # T命令: 设置跟踪模式
+        response = self.send_command(self.AXIS_RA, 'T', str(mode))
+        if response is not None:
+            self.logger.info(f"设置跟踪模式: {mode}")
+            return True
+        else:
+            self.logger.error(f"设置跟踪模式失败: {mode}")
+            return False
 
     def goto_ra_dec(self, ra_deg: float, dec_deg: float) -> bool:
         """

@@ -177,11 +177,11 @@ class SkyWatcherUI:
                                    state="readonly", width=10)
         speed_combo.grid(row=0, column=1, padx=5)
 
-        # 速度映射
+        # 速度映射 (参考MiniEQ Debug Tool的速度值)
         self.speed_map = {
-            "慢速": "010000",  # 慢速
-            "中速": "020000",  # 中速
-            "快速": "040000"   # 快速
+            "慢速": "000034",  # 慢速 (0x34 = 52)
+            "中速": "000100",  # 中速 (0x100 = 256)
+            "快速": "000500"   # 快速 (0x500 = 1280)
         }
 
         # 方向控制按钮布局 (十字形)
@@ -217,9 +217,25 @@ class SkyWatcherUI:
         self.btn_south.grid(row=2, column=1, padx=5, pady=5)
         self.btn_south.bind('<ButtonRelease-1>', lambda e: self.stop_move())
 
+        # 紧急停止按钮 (大按钮,红色)
+        emergency_stop_frame = ttk.Frame(handpad_frame)
+        emergency_stop_frame.grid(row=2, column=0, columnspan=3, pady=(10, 5))
+
+        self.btn_emergency_stop = tk.Button(emergency_stop_frame,
+                                            text="⬛ 紧急停止 ⬛",
+                                            font=('Arial', 12, 'bold'),
+                                            bg='#ff4444',
+                                            fg='white',
+                                            activebackground='#cc0000',
+                                            activeforeground='white',
+                                            width=20,
+                                            height=2,
+                                            command=self.emergency_stop)
+        self.btn_emergency_stop.pack()
+
         # 说明文字
         ttk.Label(handpad_frame, text="提示: 按住方向按钮移动,松开自动停止",
-                 foreground="gray").grid(row=2, column=0, columnspan=3, pady=(10, 0))
+                 foreground="gray").grid(row=3, column=0, columnspan=3, pady=(5, 0))
 
         # === 日志区域 ===
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
