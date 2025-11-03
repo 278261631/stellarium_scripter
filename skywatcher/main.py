@@ -58,12 +58,9 @@ def main():
     if not args.no_serial:
         logger.info(f"连接到串口: {args.port}, 波特率: {args.baudrate}")
         synscan = SynScanProtocol(args.port, args.baudrate)
-        
+
         if not synscan.connect():
-            logger.error("串口连接失败!")
-            response = input("是否继续运行(仅UI模式)? (y/n): ")
-            if response.lower() != 'y':
-                return
+            logger.error("串口连接失败! 继续以仅UI模式运行...")
             synscan = None
     else:
         logger.info("跳过串口连接(仅UI模式)")
