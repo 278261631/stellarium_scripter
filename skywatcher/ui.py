@@ -31,7 +31,7 @@ class SkyWatcherUI:
         # 创建主窗口
         self.root = tk.Tk()
         self.root.title("SkyWatcher 设备监控")
-        self.root.geometry("1000x850")
+        self.root.geometry("900x700")
         self.root.resizable(True, True)
         
         # 运行状态
@@ -162,80 +162,66 @@ class SkyWatcherUI:
         ttk.Button(quick_frame, text="西北 (Az=290° Alt=60°)",
                    command=lambda: self.quick_goto(290, 60)).grid(row=0, column=3, padx=5)
 
-        # === 手控板区域 ===
-        handpad_frame = ttk.LabelFrame(main_frame, text="手控板 (手动控制)", padding="10")
+        # === 手控板区域 (紧凑布局) ===
+        handpad_frame = ttk.LabelFrame(main_frame, text="手控板", padding="5")
         handpad_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=5)
 
-        # 速度选择
-        speed_frame = ttk.Frame(handpad_frame)
-        speed_frame.grid(row=0, column=0, columnspan=3, pady=(0, 10))
-
-        ttk.Label(speed_frame, text="速度:").grid(row=0, column=0, padx=5)
-        self.speed_var = tk.StringVar(value="慢速")
-        speed_combo = ttk.Combobox(speed_frame, textvariable=self.speed_var,
-                                   values=["慢速", "中速", "快速"],
-                                   state="readonly", width=10)
-        speed_combo.grid(row=0, column=1, padx=5)
-
-        # 速度映射 (参考MiniEQ Debug Tool的速度值)
-        self.speed_map = {
-            "慢速": "000034",  # 慢速 (0x34 = 52)
-            "中速": "000100",  # 中速 (0x100 = 256)
-            "快速": "000500"   # 快速 (0x500 = 1280)
-        }
-
-        # 方向控制按钮布局 (十字形)
+        # 使用水平布局: 左侧是方向控制,右侧是速度和停止按钮
+        # 左侧: 方向控制 (十字形)
         control_frame = ttk.Frame(handpad_frame)
-        control_frame.grid(row=1, column=0, columnspan=3, pady=10)
+        control_frame.grid(row=0, column=0, padx=10, pady=5)
 
         # 北 (上)
-        self.btn_north = ttk.Button(control_frame, text="▲ 北", width=10,
+        self.btn_north = ttk.Button(control_frame, text="▲", width=4,
                                     command=lambda: self.start_move('north'))
-        self.btn_north.grid(row=0, column=1, padx=5, pady=5)
+        self.btn_north.grid(row=0, column=1, padx=2, pady=2)
         self.btn_north.bind('<ButtonRelease-1>', lambda e: self.stop_move())
 
         # 西 (左)
-        self.btn_west = ttk.Button(control_frame, text="◄ 西", width=10,
+        self.btn_west = ttk.Button(control_frame, text="◄", width=4,
                                    command=lambda: self.start_move('west'))
-        self.btn_west.grid(row=1, column=0, padx=5, pady=5)
+        self.btn_west.grid(row=1, column=0, padx=2, pady=2)
         self.btn_west.bind('<ButtonRelease-1>', lambda e: self.stop_move())
 
         # 停止按钮 (中间)
-        self.btn_stop = ttk.Button(control_frame, text="■ 停止", width=10,
+        self.btn_stop = ttk.Button(control_frame, text="■", width=4,
                                    command=self.stop_move)
-        self.btn_stop.grid(row=1, column=1, padx=5, pady=5)
+        self.btn_stop.grid(row=1, column=1, padx=2, pady=2)
 
         # 东 (右)
-        self.btn_east = ttk.Button(control_frame, text="► 东", width=10,
+        self.btn_east = ttk.Button(control_frame, text="►", width=4,
                                    command=lambda: self.start_move('east'))
-        self.btn_east.grid(row=1, column=2, padx=5, pady=5)
+        self.btn_east.grid(row=1, column=2, padx=2, pady=2)
         self.btn_east.bind('<ButtonRelease-1>', lambda e: self.stop_move())
 
         # 南 (下)
-        self.btn_south = ttk.Button(control_frame, text="▼ 南", width=10,
+        self.btn_south = ttk.Button(control_frame, text="▼", width=4,
                                     command=lambda: self.start_move('south'))
-        self.btn_south.grid(row=2, column=1, padx=5, pady=5)
+        self.btn_south.grid(row=2, column=1, padx=2, pady=2)
         self.btn_south.bind('<ButtonRelease-1>', lambda e: self.stop_move())
 
-        # 紧急停止按钮 (大按钮,红色)
-        emergency_stop_frame = ttk.Frame(handpad_frame)
-        emergency_stop_frame.grid(row=2, column=0, columnspan=3, pady=(10, 5))
+        # 右侧: 速度选择和停止按钮
+        right_frame = ttk.Frame(handpad_frame)
+        right_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W)
 
-        self.btn_emergency_stop = tk.Button(emergency_stop_frame,
-                                            text="⬛ 紧急停止 ⬛",
-                                            font=('Arial', 12, 'bold'),
-                                            bg='#ff4444',
-                                            fg='white',
-                                            activebackground='#cc0000',
-                                            activeforeground='white',
-                                            width=20,
-                                            height=2,
-                                            command=self.emergency_stop)
-        self.btn_emergency_stop.pack()
+        # 速度选择
+        ttk.Label(right_frame, text="速度:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.speed_var = tk.StringVar(value="慢速")
+        speed_combo = ttk.Combobox(right_frame, textvariable=self.speed_var,
+                                   values=["慢速", "中速", "快速"],
+                                   state="readonly", width=8)
+        speed_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
-        # 说明文字
-        ttk.Label(handpad_frame, text="提示: 按住方向按钮移动,松开自动停止",
-                 foreground="gray").grid(row=3, column=0, columnspan=3, pady=(5, 0))
+        # 速度映射
+        self.speed_map = {
+            "慢速": "000034",
+            "中速": "000100",
+            "快速": "000500"
+        }
+
+        # 停止所有按钮
+        ttk.Button(right_frame, text="停止所有", width=10,
+                  command=self.stop_move).grid(row=1, column=0, columnspan=2, pady=5)
 
         # === 日志区域 ===
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
