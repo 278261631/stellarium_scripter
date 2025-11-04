@@ -37,7 +37,11 @@ class SkyWatcherUI:
         # 运行状态
         self.running = False
         self.update_thread = None
-        
+
+        # 当前位置 (从实时监控获取)
+        self.current_ra = None
+        self.current_dec = None
+
         # 设置日志
         self.logger = logging.getLogger('SkyWatcherUI')
         
@@ -330,6 +334,10 @@ class SkyWatcherUI:
                     if position:
                         ra_deg, dec_deg = position
 
+                        # 保存当前位置
+                        self.current_ra = ra_deg
+                        self.current_dec = dec_deg
+
                         # 更新UI
                         self.root.after(0, lambda: self.update_position(ra_deg, dec_deg))
 
@@ -380,20 +388,13 @@ class SkyWatcherUI:
             self.log(f"GOTO RA/DEC: RA={ra_deg}° DEC={dec_deg}°")
 
             if self.synscan:
-                # 获取当前位置
-                current_pos = self.synscan.get_ra_dec()
-
                 if self.synscan.goto_ra_dec(ra_deg, dec_deg):
                     self.log("✓ GOTO命令已发送")
 
-                    # 在Stellarium中绘制路径
-                    if self.stellarium_sync and current_pos:
-                        current_ra, current_dec = current_pos
-                        self.stellarium_sync.draw_goto_path(
-                            current_ra, current_dec,
-                            ra_deg, dec_deg
-                        )
-                        self.log("✓ 已在Stellarium中绘制路径")
+                    # 换颜色
+                    if self.stellarium_sync:
+                        self.stellarium_sync.next_color()
+                        self.log(f"🎨 切换颜色: {self.stellarium_sync.COLORS[self.stellarium_sync.color_index]}")
                 else:
                     self.log("✗ GOTO命令失败")
             else:
@@ -429,14 +430,10 @@ class SkyWatcherUI:
                 if self.synscan.goto_altaz(az_deg, alt_deg):
                     self.log("✓ GOTO命令已发送")
 
-                    # 在Stellarium中绘制路径
-                    if self.stellarium_sync and current_pos:
-                        current_ra, current_dec = current_pos
-                        self.stellarium_sync.draw_goto_path(
-                            current_ra, current_dec,
-                            ra_deg, dec_deg
-                        )
-                        self.log("✓ 已在Stellarium中绘制路径")
+                    # 换颜色
+                    if self.stellarium_sync:
+                        self.stellarium_sync.next_color()
+                        self.log(f"🎨 切换颜色: {self.stellarium_sync.COLORS[self.stellarium_sync.color_index]}")
                 else:
                     self.log("✗ GOTO命令失败")
             else:
@@ -498,6 +495,11 @@ class SkyWatcherUI:
             return
 
         self.log(f"开始移动: {direction} (速度: 0x{speed})")
+
+        # 换颜色
+        if self.stellarium_sync:
+            self.stellarium_sync.next_color()
+            self.log(f"🎨 切换颜色: {self.stellarium_sync.COLORS[self.stellarium_sync.color_index]}")
 
         # 根据方向调用对应的移动函数
         if direction == 'north':

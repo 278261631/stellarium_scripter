@@ -96,7 +96,11 @@ class StellariumSync:
         dec_str = f"{dec_sign}{dec_d:02d}d{dec_m:02d}m{dec_s:02d}s"
         
         return (ra_str, dec_str)
-    
+
+    def next_color(self):
+        """切换到下一个颜色"""
+        self.color_index = (self.color_index + 1) % len(self.COLORS)
+
     def update_telescope_position(self, ra_deg: float, dec_deg: float) -> bool:
         """
         更新Stellarium中的望远镜位置
@@ -110,15 +114,17 @@ class StellariumSync:
         """
         # 转换为HMS/DMS格式
         ra_str, dec_str = self.ra_dec_to_hms_dms(ra_deg, dec_deg)
-        
+
+        # 获取当前颜色
+        color = self.COLORS[self.color_index]
+
         # 使用LabelMgr在当前位置显示标记
         script = f'''
 // 清除旧的望远镜标记
 LabelMgr.deleteLabel("TELESCOPE");
 
-// 在当前望远镜位置显示标记
-LabelMgr.labelEquatorial("🔭", "{ra_str}", "{dec_str}", true, 24, "#00ff00", "", -1.0, false, 0, true);
-LabelMgr.labelEquatorial("TELESCOPE", "{ra_str}", "{dec_str}", true, 14, "#00ff00", "", -1.0, false, 0, true);
+// 在当前望远镜位置显示标记 (使用当前颜色)
+LabelMgr.labelEquatorial("•", "{ra_str}", "{dec_str}", true, 40, "{color}", "", -1.0, false, 0, true);
 '''
         
         try:
@@ -212,40 +218,30 @@ var dec = {dec_deg};
         Returns:
             bool: 绘制是否成功
         """
-        # 获取当前颜色
+        # 先换颜色
+        self.color_index = (self.color_index + 1) % len(self.COLORS)
         color = self.COLORS[self.color_index]
 
-        # 转换为HMS/DMS格式
-        start_ra_str, start_dec_str = self.ra_dec_to_hms_dms(start_ra, start_dec)
-        end_ra_str, end_dec_str = self.ra_dec_to_hms_dms(end_ra, end_dec)
-
-        # 创建唯一的标签名
-        label_start = f"GOTO_{self.goto_count}_START"
-        label_end = f"GOTO_{self.goto_count}_END"
-        label_line = f"GOTO_{self.goto_count}_LINE"
-
-        script = f'''
-// 绘制GOTO路径 #{self.goto_count}
-// 起点标记
-LabelMgr.labelEquatorial("{label_start}", "{start_ra_str}", "{start_dec_str}", true, 16, "{color}", "", -1.0, false, 0, true);
-LabelMgr.labelEquatorial("●", "{start_ra_str}", "{start_dec_str}", true, 20, "{color}", "", -1.0, false, 0, true);
-
-// 终点标记
-LabelMgr.labelEquatorial("{label_end}", "{end_ra_str}", "{end_dec_str}", true, 16, "{color}", "", -1.0, false, 0, true);
-LabelMgr.labelEquatorial("★", "{end_ra_str}", "{end_dec_str}", true, 24, "{color}", "", -1.0, false, 0, true);
-
-// 路径线 (使用多个点模拟)
-'''
+        # 绘制路径 (不清除旧路径,所有点使用统一颜色)
+        script = f'// 绘制路径 #{self.goto_count} (颜色: {color})\n'
 
         # 在起点和终点之间绘制多个点来模拟线条
-        num_points = 20
-        for i in range(1, num_points):
+        num_points = 30  # 增加点数使线条更平滑
+        for i in range(num_points + 1):
             t = i / num_points
             # 线性插值
             mid_ra = start_ra + (end_ra - start_ra) * t
             mid_dec = start_dec + (end_dec - start_dec) * t
             mid_ra_str, mid_dec_str = self.ra_dec_to_hms_dms(mid_ra, mid_dec)
-            script += f'LabelMgr.labelEquatorial("·", "{mid_ra_str}", "{mid_dec_str}", true, 12, "{color}", "", -1.0, false, 0, true);\n'
+            # 使用 "•" 作为标记点(使用不同的符号避免混淆)
+            script += f'LabelMgr.labelEquatorial("•", "{mid_ra_str}", "{mid_dec_str}", true, 35, "{color}", "", -1.0, false, 0, true);\n'
+
+        # 打印完整脚本
+        self.logger.info("=" * 80)
+        self.logger.info(f"🎨 执行Stellarium脚本 (路径 #{self.goto_count}, 颜色: {color}):")
+        self.logger.info("-" * 80)
+        self.logger.info(script)
+        self.logger.info("=" * 80)
 
         try:
             response = requests.post(
@@ -255,10 +251,8 @@ LabelMgr.labelEquatorial("★", "{end_ra_str}", "{end_dec_str}", true, 24, "{col
             )
 
             if response.status_code == 200:
-                self.logger.info(f"✓ 绘制GOTO路径 #{self.goto_count} (颜色: {color})")
-                # 更新计数和颜色索引
+                self.logger.info(f"✓ 绘制路径 #{self.goto_count} (颜色: {color})")
                 self.goto_count += 1
-                self.color_index = (self.color_index + 1) % len(self.COLORS)
                 return True
             else:
                 self.logger.error(f"绘制路径失败: {response.status_code}")
