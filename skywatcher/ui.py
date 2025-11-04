@@ -230,9 +230,72 @@ class SkyWatcherUI:
         ttk.Button(right_frame, text="停止所有", width=10,
                   command=self.stop_move).grid(row=1, column=0, columnspan=3, pady=5)
 
+        # === 速度控制区域 ===
+        speed_control_frame = ttk.LabelFrame(main_frame, text="轴速度控制", padding="10")
+        speed_control_frame.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=5)
+
+        # RA轴速度控制
+        ra_speed_frame = ttk.Frame(speed_control_frame)
+        ra_speed_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=5, pady=5)
+
+        ttk.Label(ra_speed_frame, text="RA轴速度:", width=12).grid(row=0, column=0, sticky=tk.W)
+
+        # RA速度滑块 (0-65536, 对数刻度)
+        self.ra_speed_var = tk.IntVar(value=256)  # 默认慢速
+        self.ra_speed_slider = ttk.Scale(ra_speed_frame, from_=0, to=65536,
+                                         variable=self.ra_speed_var, orient=tk.HORIZONTAL,
+                                         length=300, command=self.update_ra_speed_display)
+        self.ra_speed_slider.grid(row=0, column=1, padx=5)
+
+        # RA速度显示
+        self.ra_speed_label = ttk.Label(ra_speed_frame, text="256 (000100)", width=15)
+        self.ra_speed_label.grid(row=0, column=2, padx=5)
+
+        # RA设置按钮
+        ttk.Button(ra_speed_frame, text="设置RA速度",
+                   command=self.set_ra_speed).grid(row=0, column=3, padx=5)
+
+        # DEC轴速度控制
+        dec_speed_frame = ttk.Frame(speed_control_frame)
+        dec_speed_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), padx=5, pady=5)
+
+        ttk.Label(dec_speed_frame, text="DEC轴速度:", width=12).grid(row=0, column=0, sticky=tk.W)
+
+        # DEC速度滑块 (0-65536, 对数刻度)
+        self.dec_speed_var = tk.IntVar(value=256)  # 默认慢速
+        self.dec_speed_slider = ttk.Scale(dec_speed_frame, from_=0, to=65536,
+                                          variable=self.dec_speed_var, orient=tk.HORIZONTAL,
+                                          length=300, command=self.update_dec_speed_display)
+        self.dec_speed_slider.grid(row=0, column=1, padx=5)
+
+        # DEC速度显示
+        self.dec_speed_label = ttk.Label(dec_speed_frame, text="256 (000100)", width=15)
+        self.dec_speed_label.grid(row=0, column=2, padx=5)
+
+        # DEC设置按钮
+        ttk.Button(dec_speed_frame, text="设置DEC速度",
+                   command=self.set_dec_speed).grid(row=0, column=3, padx=5)
+
+        # 速度预设按钮
+        preset_frame = ttk.Frame(speed_control_frame)
+        preset_frame.grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+
+        ttk.Label(preset_frame, text="速度预设:", width=12).grid(row=0, column=0, sticky=tk.W)
+
+        ttk.Button(preset_frame, text="很慢(16)",
+                   command=lambda: self.set_preset_speed(16)).grid(row=0, column=1, padx=2)
+        ttk.Button(preset_frame, text="慢速(256)",
+                   command=lambda: self.set_preset_speed(256)).grid(row=0, column=2, padx=2)
+        ttk.Button(preset_frame, text="中速(4096)",
+                   command=lambda: self.set_preset_speed(4096)).grid(row=0, column=3, padx=2)
+        ttk.Button(preset_frame, text="快速(65536)",
+                   command=lambda: self.set_preset_speed(65536)).grid(row=0, column=4, padx=2)
+        ttk.Button(preset_frame, text="停止(0)",
+                   command=lambda: self.set_preset_speed(0)).grid(row=0, column=5, padx=2)
+
         # === 日志区域 ===
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
-        log_frame.grid(row=5, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        log_frame.grid(row=6, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
@@ -656,6 +719,63 @@ class SkyWatcherUI:
             self.log("⚠ DEC轴已停止, RA轴停止失败")
         else:
             self.log("✗ 所有轴停止失败")
+
+    def update_ra_speed_display(self, value):
+        """更新RA速度显示"""
+        speed = int(float(value))
+        speed_hex = f"{speed:06X}"
+        self.ra_speed_label.config(text=f"{speed} ({speed_hex})")
+
+    def update_dec_speed_display(self, value):
+        """更新DEC速度显示"""
+        speed = int(float(value))
+        speed_hex = f"{speed:06X}"
+        self.dec_speed_label.config(text=f"{speed} ({speed_hex})")
+
+    def set_ra_speed(self):
+        """设置RA轴速度"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        speed = self.ra_speed_var.get()
+        speed_hex = f"{speed:06X}"
+
+        self.log(f"正在设置RA轴速度: {speed} ({speed_hex})...")
+
+        response = self.synscan.send_command(self.synscan.AXIS_RA, 'I', speed_hex)
+        if response is not None:
+            self.log(f"✓ RA轴速度已设置为 {speed}")
+        else:
+            self.log("✗ 设置RA轴速度失败")
+
+    def set_dec_speed(self):
+        """设置DEC轴速度"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        speed = self.dec_speed_var.get()
+        speed_hex = f"{speed:06X}"
+
+        self.log(f"正在设置DEC轴速度: {speed} ({speed_hex})...")
+
+        response = self.synscan.send_command(self.synscan.AXIS_DEC, 'I', speed_hex)
+        if response is not None:
+            self.log(f"✓ DEC轴速度已设置为 {speed}")
+        else:
+            self.log("✗ 设置DEC轴速度失败")
+
+    def set_preset_speed(self, speed):
+        """设置预设速度到两个轴"""
+        self.ra_speed_var.set(speed)
+        self.dec_speed_var.set(speed)
+
+        # 更新显示
+        self.update_ra_speed_display(speed)
+        self.update_dec_speed_display(speed)
+
+        self.log(f"速度预设已设置为: {speed}")
 
     def run(self):
         """运行UI主循环"""

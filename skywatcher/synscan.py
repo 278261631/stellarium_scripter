@@ -434,7 +434,21 @@ class SynScanProtocol:
         # 并设置 Initialize = true 触发 TrajectoryPlanner::MountGoto()
 
         try:
-            # 构建X1命令 - 注意RA使用小时而不是度!
+            # 1. 先设置两个轴为慢速 (I命令设置速度为000100)
+            self.logger.debug("设置RA轴慢速: :I1000100\\r")
+            ra_speed = self.send_command(self.AXIS_RA, 'I', '000100')
+            if ra_speed is None:
+                self.logger.warning("⚠ 设置RA轴速度失败,继续执行")
+
+            self.logger.debug("设置DEC轴慢速: :I2000100\\r")
+            dec_speed = self.send_command(self.AXIS_DEC, 'I', '000100')
+            if dec_speed is None:
+                self.logger.warning("⚠ 设置DEC轴速度失败,继续执行")
+
+            # 短暂延迟
+            time.sleep(0.05)
+
+            # 2. 构建X1命令 - 注意RA使用小时而不是度!
             cmd = f":X1{ra_hours:.6f},{dec_deg:.6f}\r"
             self.logger.debug(f"发送X1命令: {repr(cmd)}")
 
