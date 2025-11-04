@@ -31,7 +31,7 @@ class SkyWatcherUI:
         # 创建主窗口
         self.root = tk.Tk()
         self.root.title("SkyWatcher 设备监控")
-        self.root.geometry("900x700")
+        self.root.geometry("900x900")  # 增加高度,让手控板能被看到
         self.root.resizable(True, True)
         
         # 运行状态
@@ -249,7 +249,11 @@ class SkyWatcherUI:
         
         # 清除日志按钮
         ttk.Button(button_frame, text="清除日志", command=self.clear_log).grid(row=0, column=2, padx=5)
-        
+
+        # 如果设备已连接,自动开启监控
+        if self.synscan:
+            self.root.after(100, self.start_monitoring)  # 延迟100ms启动,确保UI完全初始化
+
     def log(self, message: str):
         """
         添加日志消息
