@@ -30,8 +30,9 @@ class SynScanProtocol:
 
     # 步进电机参数 (从固件读取,默认值)
     # 注意: 这个值会在连接时从设备读取 (命令 'a')
-    STEPS_PER_REVOLUTION = 0x1000000  # 16777216 步/圈 (标准SkyWatcher)
-    # miniEQ固件使用: 5120000 步/圈
+    # miniEQ固件实际使用: 5120000 步/圈 (200步 * 256细分 * 100减速比)
+    STEPS_PER_REVOLUTION = 5120000  # 使用miniEQ固件的实际值
+    # 标准SkyWatcher: 0x1000000 (16777216) 步/圈
     
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0):
         """
@@ -91,11 +92,18 @@ class SynScanProtocol:
                 try:
                     # 使用小端序解析
                     steps_per_rev = self.parse_little_endian_hex(steps_response)
-                    if steps_per_rev > 0:
+                    self.logger.info(f"设备返回步进数: {steps_per_rev} (0x{steps_per_rev:06X}) 步/圈")
+
+                    # miniEQ固件返回的是0x1000000,但实际使用5120000
+                    # 所以我们忽略设备返回值,强制使用正确的值
+                    if steps_per_rev == 0x1000000:
+                        self.logger.warning(f"⚠ 设备返回标准值0x1000000,但miniEQ实际使用5120000")
+                        self.logger.info(f"✓ 强制使用miniEQ步进数: {self.STEPS_PER_REVOLUTION} 步/圈")
+                    elif steps_per_rev == 5120000:
                         self.STEPS_PER_REVOLUTION = steps_per_rev
-                        self.logger.info(f"✓ 设备步进数: {steps_per_rev} (0x{steps_per_rev:06X}) 步/圈")
+                        self.logger.info(f"✓ 设备步进数正确: {steps_per_rev} 步/圈")
                     else:
-                        self.logger.warning(f"⚠ 设备返回无效步进数: {steps_per_rev}, 使用默认值")
+                        self.logger.warning(f"⚠ 设备返回未知步进数: {steps_per_rev}, 使用默认值{self.STEPS_PER_REVOLUTION}")
                 except ValueError as e:
                     self.logger.warning(f"⚠ 无法解析步进数响应: {steps_response}, 错误: {e}, 使用默认值")
             else:
@@ -403,6 +411,11 @@ class SynScanProtocol:
         """
         GOTO到指定的RA/DEC位置
 
+        使用固件的X1命令(自定义协议):
+        - :X1{RA_hours},{DEC_deg}\r 设置目标坐标并触发GOTO
+        - RA: 小时 (0-24h) - 固件内部通过 * PI / 12 转换为弧度
+        - DEC: 度 (-90到+90°) - 固件内部通过 * PI / 180 转换为弧度
+
         Args:
             ra_deg: 赤经(度) 0-360
             dec_deg: 赤纬(度) -90到+90
@@ -410,48 +423,51 @@ class SynScanProtocol:
         Returns:
             bool: 是否成功
         """
-        # 转换DEC: -90到+90 -> 0到360 (设备内部表示)
-        # -90到0°   -> 270到360°
-        # 0到+90°   -> 0到90°
-        if dec_deg >= 0:
-            dec_deg_normalized = dec_deg
-        else:
-            dec_deg_normalized = dec_deg + 360
+        # 将RA从度转换为小时 (0-360° → 0-24h)
+        ra_hours = ra_deg / 15.0
 
-        # 转换为步进值
-        ra_steps = self.degrees_to_steps(ra_deg)
-        dec_steps = self.degrees_to_steps(dec_deg_normalized)
+        self.logger.info(f"GOTO: RA={ra_deg:.4f}° ({ra_hours:.4f}h), DEC={dec_deg:.4f}°")
 
-        # 转换为6位16进制字符串
-        ra_hex = f"{ra_steps:06X}"
-        dec_hex = f"{dec_steps:06X}"
+        # 使用X1命令发送目标坐标
+        # 格式: :X1{RA小时},{DEC度}\r
+        # 固件会调用 CoordinateManager::setTargetCoordinates(ra_hours, dec_deg)
+        # 并设置 Initialize = true 触发 TrajectoryPlanner::MountGoto()
 
-        self.logger.info(f"GOTO: RA={ra_deg:.4f}° ({ra_hex}), DEC={dec_deg:.4f}° ({dec_hex})")
+        try:
+            # 构建X1命令 - 注意RA使用小时而不是度!
+            cmd = f":X1{ra_hours:.6f},{dec_deg:.6f}\r"
+            self.logger.debug(f"发送X1命令: {repr(cmd)}")
 
-        # 1. 先设置GOTO速度 (使用较慢的速度以确保安全)
-        # 速度值: 0x000001 到 0xFFFFFF, 推荐使用中等速度 0x020000
-        goto_speed = "020000"  # 中等速度
+            # 清空输入缓冲区
+            self.serial.reset_input_buffer()
 
-        self.logger.debug(f"设置GOTO速度: {goto_speed}")
-        speed_ra = self.send_command(self.AXIS_RA, 'I', goto_speed)
-        speed_dec = self.send_command(self.AXIS_DEC, 'I', goto_speed)
+            # 发送命令
+            self.serial.write(cmd.encode('ascii'))
 
-        if speed_ra is None or speed_dec is None:
-            self.logger.error("设置GOTO速度失败")
-            return False
+            # 读取响应
+            response = ""
+            start_time = time.time()
 
-        # 2. 设置目标位置
-        ra_response = self.send_command(self.AXIS_RA, 'S', ra_hex)
-        dec_response = self.send_command(self.AXIS_DEC, 'S', dec_hex)
+            while time.time() - start_time < self.timeout:
+                if self.serial.in_waiting > 0:
+                    char = self.serial.read(1).decode('ascii')
+                    response += char
+                    if char == '\r':
+                        break
+                else:
+                    time.sleep(0.01)
 
-        if ra_response is not None and dec_response is not None:
-            # 3. 启动GOTO运动
-            self.send_command(self.AXIS_RA, 'J')
-            self.send_command(self.AXIS_DEC, 'J')
-            self.logger.info("✓ GOTO命令已发送,设备开始移动")
-            return True
-        else:
-            self.logger.error("✗ 设置目标位置失败")
+            self.logger.debug(f"收到响应: {repr(response)}")
+
+            if response.startswith('='):
+                self.logger.info("✓ GOTO命令已发送,设备开始移动")
+                return True
+            else:
+                self.logger.error(f"✗ GOTO命令失败,响应: {repr(response)}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"✗ 发送GOTO命令时出错: {e}")
             return False
 
     def altaz_to_radec(self, az_deg: float, alt_deg: float,
