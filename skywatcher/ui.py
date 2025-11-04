@@ -200,28 +200,23 @@ class SkyWatcherUI:
         self.btn_south.grid(row=2, column=1, padx=2, pady=2)
         self.btn_south.bind('<ButtonRelease-1>', lambda e: self.stop_move())
 
-        # 右侧: 速度选择和停止按钮
+        # 右侧: 速度输入和停止按钮
         right_frame = ttk.Frame(handpad_frame)
         right_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W)
 
-        # 速度选择
-        ttk.Label(right_frame, text="速度:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.speed_var = tk.StringVar(value="慢速")
-        speed_combo = ttk.Combobox(right_frame, textvariable=self.speed_var,
-                                   values=["慢速", "中速", "快速"],
-                                   state="readonly", width=8)
-        speed_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
+        # 速度输入 (16进制,6位)
+        ttk.Label(right_frame, text="速度(hex):").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.speed_var = tk.StringVar(value="000010")  # 默认更慢的速度
+        speed_entry = ttk.Entry(right_frame, textvariable=self.speed_var, width=10)
+        speed_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
-        # 速度映射
-        self.speed_map = {
-            "慢速": "000034",
-            "中速": "000100",
-            "快速": "000500"
-        }
+        # 速度说明
+        ttk.Label(right_frame, text="(6位16进制)",
+                 foreground="gray", font=('Arial', 8)).grid(row=0, column=2, sticky=tk.W, padx=2)
 
         # 停止所有按钮
         ttk.Button(right_frame, text="停止所有", width=10,
-                  command=self.stop_move).grid(row=1, column=0, columnspan=2, pady=5)
+                  command=self.stop_move).grid(row=1, column=0, columnspan=3, pady=5)
 
         # === 日志区域 ===
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
@@ -450,11 +445,21 @@ class SkyWatcherUI:
             self.log("✗ 设备未连接")
             return
 
-        # 获取当前速度
-        speed_name = self.speed_var.get()
-        speed = self.speed_map.get(speed_name, "010000")
+        # 获取速度值 (直接从输入框)
+        speed = self.speed_var.get().strip()
 
-        self.log(f"开始移动: {direction} (速度: {speed_name})")
+        # 验证速度格式 (6位16进制)
+        if len(speed) != 6:
+            self.log(f"✗ 速度格式错误: 必须是6位16进制数 (当前: {speed})")
+            return
+
+        try:
+            int(speed, 16)  # 验证是否为有效的16进制
+        except ValueError:
+            self.log(f"✗ 速度格式错误: 不是有效的16进制数 (当前: {speed})")
+            return
+
+        self.log(f"开始移动: {direction} (速度: 0x{speed})")
 
         # 根据方向调用对应的移动函数
         if direction == 'north':
