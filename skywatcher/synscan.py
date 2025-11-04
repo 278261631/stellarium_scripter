@@ -470,6 +470,195 @@ class SynScanProtocol:
             self.logger.error(f"✗ 发送GOTO命令时出错: {e}")
             return False
 
+    def set_time(self, year: int, month: int, day: int,
+                 hour: int, minute: int, second: int, timezone: int) -> bool:
+        """
+        设置设备时间
+
+        使用固件的T1命令(自定义协议):
+        - :T1YYYYMMDDHHMMSS+HH\r 设置本地时间和时区
+
+        Args:
+            year: 年 (2000-2100)
+            month: 月 (1-12)
+            day: 日 (1-31)
+            hour: 时 (0-23)
+            minute: 分 (0-59)
+            second: 秒 (0-59)
+            timezone: 时区 (-12到+14, 例如北京时间是+8)
+
+        Returns:
+            bool: 是否成功
+        """
+        self.logger.info(f"设置时间: {year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d} UTC{timezone:+03d}")
+
+        try:
+            # 构建T1命令
+            cmd = f":T1{year:04d}{month:02d}{day:02d}{hour:02d}{minute:02d}{second:02d}{timezone:+03d}\r"
+            self.logger.debug(f"发送T1命令: {repr(cmd)}")
+
+            # 清空输入缓冲区
+            self.serial.reset_input_buffer()
+
+            # 发送命令
+            self.serial.write(cmd.encode('ascii'))
+
+            # 读取响应
+            response = ""
+            start_time = time.time()
+
+            while time.time() - start_time < self.timeout:
+                if self.serial.in_waiting > 0:
+                    char = self.serial.read(1).decode('ascii')
+                    response += char
+                    if char == '\r':
+                        break
+                else:
+                    time.sleep(0.01)
+
+            self.logger.debug(f"收到响应: {repr(response)}")
+
+            if response.startswith('='):
+                self.logger.info("✓ 时间设置成功")
+                return True
+            else:
+                self.logger.error(f"✗ 时间设置失败,响应: {repr(response)}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"✗ 设置时间时出错: {e}")
+            return False
+
+    def initialize_axis(self, axis: int) -> bool:
+        """
+        初始化轴
+
+        使用固件的F命令:
+        - :F1\r 初始化RA轴
+        - :F2\r 初始化DEC轴
+
+        Args:
+            axis: 轴编号 (1=RA, 2=DEC)
+
+        Returns:
+            bool: 是否成功
+        """
+        axis_name = "RA" if axis == 1 else "DEC"
+        self.logger.info(f"初始化{axis_name}轴")
+
+        try:
+            # 构建F命令
+            cmd = f":F{axis}\r"
+            self.logger.debug(f"发送F{axis}命令: {repr(cmd)}")
+
+            # 清空输入缓冲区
+            self.serial.reset_input_buffer()
+
+            # 发送命令
+            self.serial.write(cmd.encode('ascii'))
+
+            # 读取响应
+            response = ""
+            start_time = time.time()
+
+            while time.time() - start_time < self.timeout:
+                if self.serial.in_waiting > 0:
+                    char = self.serial.read(1).decode('ascii')
+                    response += char
+                    if char == '\r':
+                        break
+                else:
+                    time.sleep(0.01)
+
+            self.logger.debug(f"收到响应: {repr(response)}")
+
+            if response.startswith('='):
+                self.logger.info(f"✓ {axis_name}轴初始化成功")
+                return True
+            else:
+                self.logger.error(f"✗ {axis_name}轴初始化失败,响应: {repr(response)}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"✗ 初始化{axis_name}轴时出错: {e}")
+            return False
+
+    def initialize_mount(self) -> bool:
+        """
+        初始化赤道仪(初始化RA和DEC两个轴)
+
+        Returns:
+            bool: 是否成功
+        """
+        self.logger.info("初始化赤道仪...")
+
+        # 初始化RA轴
+        if not self.initialize_axis(1):
+            return False
+
+        time.sleep(0.2)
+
+        # 初始化DEC轴
+        if not self.initialize_axis(2):
+            return False
+
+        self.logger.info("✓ 赤道仪初始化完成")
+        return True
+
+    def set_location(self, latitude: float, longitude: float, elevation: int = 0) -> bool:
+        """
+        设置观测位置
+
+        使用固件的Z1命令(自定义协议):
+        - :Z1+DD.DDDD,+DDD.DDDD,+DDDD\r 设置纬度、经度、海拔
+
+        Args:
+            latitude: 纬度 (-90.0 到 +90.0, 北纬为正)
+            longitude: 经度 (-180.0 到 +180.0, 东经为正)
+            elevation: 海拔 (-1000 到 +10000 米, 默认0)
+
+        Returns:
+            bool: 是否成功
+        """
+        self.logger.info(f"设置位置: 纬度={latitude:.4f}°, 经度={longitude:.4f}°, 海拔={elevation}m")
+
+        try:
+            # 构建Z1命令
+            cmd = f":Z1{latitude:+.4f},{longitude:+.4f},{elevation:+05d}\r"
+            self.logger.debug(f"发送Z1命令: {repr(cmd)}")
+
+            # 清空输入缓冲区
+            self.serial.reset_input_buffer()
+
+            # 发送命令
+            self.serial.write(cmd.encode('ascii'))
+
+            # 读取响应
+            response = ""
+            start_time = time.time()
+
+            while time.time() - start_time < self.timeout:
+                if self.serial.in_waiting > 0:
+                    char = self.serial.read(1).decode('ascii')
+                    response += char
+                    if char == '\r':
+                        break
+                else:
+                    time.sleep(0.01)
+
+            self.logger.debug(f"收到响应: {repr(response)}")
+
+            if response.startswith('='):
+                self.logger.info("✓ 位置设置成功")
+                return True
+            else:
+                self.logger.error(f"✗ 位置设置失败,响应: {repr(response)}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"✗ 设置位置时出错: {e}")
+            return False
+
     def altaz_to_radec(self, az_deg: float, alt_deg: float,
                        lat_deg: float = 40.0, lon_deg: float = 120.0) -> Tuple[float, float]:
         """
