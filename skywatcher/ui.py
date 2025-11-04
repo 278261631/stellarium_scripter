@@ -162,6 +162,10 @@ class SkyWatcherUI:
         ttk.Button(quick_frame, text="西北 (Az=290° Alt=60°)",
                    command=lambda: self.quick_goto(290, 60)).grid(row=0, column=3, padx=5)
 
+        # 清除Stellarium绘制按钮
+        ttk.Button(quick_frame, text="🗑️ 清除Stellarium绘制",
+                   command=self.clear_stellarium_drawings).grid(row=0, column=4, padx=15)
+
         # === 手控板区域 (紧凑布局) ===
         handpad_frame = ttk.LabelFrame(main_frame, text="手控板", padding="5")
         handpad_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=5)
@@ -376,8 +380,20 @@ class SkyWatcherUI:
             self.log(f"GOTO RA/DEC: RA={ra_deg}° DEC={dec_deg}°")
 
             if self.synscan:
+                # 获取当前位置
+                current_pos = self.synscan.get_ra_dec()
+
                 if self.synscan.goto_ra_dec(ra_deg, dec_deg):
                     self.log("✓ GOTO命令已发送")
+
+                    # 在Stellarium中绘制路径
+                    if self.stellarium_sync and current_pos:
+                        current_ra, current_dec = current_pos
+                        self.stellarium_sync.draw_goto_path(
+                            current_ra, current_dec,
+                            ra_deg, dec_deg
+                        )
+                        self.log("✓ 已在Stellarium中绘制路径")
                 else:
                     self.log("✗ GOTO命令失败")
             else:
@@ -395,6 +411,9 @@ class SkyWatcherUI:
             self.log(f"GOTO Az/Alt: 方位角={az_deg}° 高度角={alt_deg}°")
 
             if self.synscan:
+                # 获取当前位置
+                current_pos = self.synscan.get_ra_dec()
+
                 # 先转换为赤道坐标
                 ra_deg, dec_deg = self.synscan.altaz_to_radec(az_deg, alt_deg)
 
@@ -409,6 +428,15 @@ class SkyWatcherUI:
                 # 执行GOTO
                 if self.synscan.goto_altaz(az_deg, alt_deg):
                     self.log("✓ GOTO命令已发送")
+
+                    # 在Stellarium中绘制路径
+                    if self.stellarium_sync and current_pos:
+                        current_ra, current_dec = current_pos
+                        self.stellarium_sync.draw_goto_path(
+                            current_ra, current_dec,
+                            ra_deg, dec_deg
+                        )
+                        self.log("✓ 已在Stellarium中绘制路径")
                 else:
                     self.log("✗ GOTO命令失败")
             else:
@@ -433,6 +461,16 @@ class SkyWatcherUI:
 
         # 执行GOTO
         self.goto_altaz()
+
+    def clear_stellarium_drawings(self):
+        """清除Stellarium中的所有绘制"""
+        if self.stellarium_sync:
+            if self.stellarium_sync.clear_all_drawings():
+                self.log("✓ 已清除Stellarium中的所有绘制")
+            else:
+                self.log("✗ 清除Stellarium绘制失败")
+        else:
+            self.log("✗ Stellarium未连接")
 
     def start_move(self, direction: str):
         """

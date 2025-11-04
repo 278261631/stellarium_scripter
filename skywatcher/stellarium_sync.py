@@ -13,24 +13,42 @@ from typing import Optional
 
 class StellariumSync:
     """Stellarium位置同步类"""
-    
+
+    # 预定义的颜色列表 (用于GOTO轨迹)
+    COLORS = [
+        "#FF0000",  # 红色
+        "#00FF00",  # 绿色
+        "#0000FF",  # 蓝色
+        "#FFFF00",  # 黄色
+        "#FF00FF",  # 品红
+        "#00FFFF",  # 青色
+        "#FFA500",  # 橙色
+        "#FF1493",  # 深粉色
+        "#00FA9A",  # 中春绿色
+        "#9370DB",  # 中紫色
+    ]
+
     def __init__(self, base_url: str = "http://127.0.0.1:8090"):
         """
         初始化Stellarium同步器
-        
+
         Args:
             base_url: Stellarium远程控制API地址
         """
         self.base_url = base_url.rstrip('/')
         self.api_url = f"{self.base_url}/api"
-        
+
         # 设置日志
         self.logger = logging.getLogger('StellariumSync')
         self.logger.setLevel(logging.DEBUG)
-        
+
         # 上次更新的位置
         self.last_ra = None
         self.last_dec = None
+
+        # GOTO轨迹计数和颜色索引
+        self.goto_count = 0
+        self.color_index = 0
         
     def test_connection(self) -> bool:
         """
@@ -163,12 +181,12 @@ var dec = {dec_deg};
     def clear_telescope_marker(self) -> bool:
         """
         清除望远镜标记
-        
+
         Returns:
             bool: 操作是否成功
         """
         script = 'LabelMgr.deleteLabel("TELESCOPE");'
-        
+
         try:
             response = requests.post(
                 f"{self.api_url}/scripts/direct",
@@ -178,5 +196,108 @@ var dec = {dec_deg};
             return response.status_code == 200
         except Exception as e:
             self.logger.error(f"清除标记失败: {e}")
+            return False
+
+    def draw_goto_path(self, start_ra: float, start_dec: float,
+                       end_ra: float, end_dec: float) -> bool:
+        """
+        在Stellarium中绘制GOTO路径
+
+        Args:
+            start_ra: 起始赤经(度)
+            start_dec: 起始赤纬(度)
+            end_ra: 目标赤经(度)
+            end_dec: 目标赤纬(度)
+
+        Returns:
+            bool: 绘制是否成功
+        """
+        # 获取当前颜色
+        color = self.COLORS[self.color_index]
+
+        # 转换为HMS/DMS格式
+        start_ra_str, start_dec_str = self.ra_dec_to_hms_dms(start_ra, start_dec)
+        end_ra_str, end_dec_str = self.ra_dec_to_hms_dms(end_ra, end_dec)
+
+        # 创建唯一的标签名
+        label_start = f"GOTO_{self.goto_count}_START"
+        label_end = f"GOTO_{self.goto_count}_END"
+        label_line = f"GOTO_{self.goto_count}_LINE"
+
+        script = f'''
+// 绘制GOTO路径 #{self.goto_count}
+// 起点标记
+LabelMgr.labelEquatorial("{label_start}", "{start_ra_str}", "{start_dec_str}", true, 16, "{color}", "", -1.0, false, 0, true);
+LabelMgr.labelEquatorial("●", "{start_ra_str}", "{start_dec_str}", true, 20, "{color}", "", -1.0, false, 0, true);
+
+// 终点标记
+LabelMgr.labelEquatorial("{label_end}", "{end_ra_str}", "{end_dec_str}", true, 16, "{color}", "", -1.0, false, 0, true);
+LabelMgr.labelEquatorial("★", "{end_ra_str}", "{end_dec_str}", true, 24, "{color}", "", -1.0, false, 0, true);
+
+// 路径线 (使用多个点模拟)
+'''
+
+        # 在起点和终点之间绘制多个点来模拟线条
+        num_points = 20
+        for i in range(1, num_points):
+            t = i / num_points
+            # 线性插值
+            mid_ra = start_ra + (end_ra - start_ra) * t
+            mid_dec = start_dec + (end_dec - start_dec) * t
+            mid_ra_str, mid_dec_str = self.ra_dec_to_hms_dms(mid_ra, mid_dec)
+            script += f'LabelMgr.labelEquatorial("·", "{mid_ra_str}", "{mid_dec_str}", true, 12, "{color}", "", -1.0, false, 0, true);\n'
+
+        try:
+            response = requests.post(
+                f"{self.api_url}/scripts/direct",
+                data={"code": script},
+                timeout=2
+            )
+
+            if response.status_code == 200:
+                self.logger.info(f"✓ 绘制GOTO路径 #{self.goto_count} (颜色: {color})")
+                # 更新计数和颜色索引
+                self.goto_count += 1
+                self.color_index = (self.color_index + 1) % len(self.COLORS)
+                return True
+            else:
+                self.logger.error(f"绘制路径失败: {response.status_code}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"绘制路径异常: {e}")
+            return False
+
+    def clear_all_drawings(self) -> bool:
+        """
+        清除Stellarium中的所有绘制(包括望远镜标记和GOTO路径)
+
+        Returns:
+            bool: 清除是否成功
+        """
+        script = '''
+// 清除所有标签
+LabelMgr.deleteAllLabels();
+'''
+
+        try:
+            response = requests.post(
+                f"{self.api_url}/scripts/direct",
+                data={"code": script},
+                timeout=2
+            )
+
+            if response.status_code == 200:
+                self.logger.info("✓ 已清除所有绘制")
+                # 重置计数器
+                self.goto_count = 0
+                self.color_index = 0
+                return True
+            else:
+                self.logger.error(f"清除绘制失败: {response.status_code}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"清除绘制异常: {e}")
             return False
 
