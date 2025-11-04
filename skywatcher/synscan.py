@@ -27,9 +27,11 @@ class SynScanProtocol:
     # 轴定义
     AXIS_RA = '1'   # 赤经轴
     AXIS_DEC = '2'  # 赤纬轴
-    
-    # 步进电机参数 (标准SkyWatcher参数)
-    STEPS_PER_REVOLUTION = 0x1000000  # 16777216 步/圈
+
+    # 步进电机参数 (从固件读取,默认值)
+    # 注意: 这个值会在连接时从设备读取 (命令 'a')
+    STEPS_PER_REVOLUTION = 0x1000000  # 16777216 步/圈 (标准SkyWatcher)
+    # miniEQ固件使用: 5120000 步/圈
     
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0):
         """
@@ -81,6 +83,23 @@ class SynScanProtocol:
                 self.logger.info("✓ 轴初始化成功")
             else:
                 self.logger.warning("⚠ 轴初始化失败,但继续连接")
+
+            # 读取设备的实际步进数/圈 (命令 'a')
+            self.logger.info("读取设备步进参数...")
+            steps_response = self.send_command(self.AXIS_RA, 'a')
+            if steps_response:
+                try:
+                    # 使用小端序解析
+                    steps_per_rev = self.parse_little_endian_hex(steps_response)
+                    if steps_per_rev > 0:
+                        self.STEPS_PER_REVOLUTION = steps_per_rev
+                        self.logger.info(f"✓ 设备步进数: {steps_per_rev} (0x{steps_per_rev:06X}) 步/圈")
+                    else:
+                        self.logger.warning(f"⚠ 设备返回无效步进数: {steps_per_rev}, 使用默认值")
+                except ValueError as e:
+                    self.logger.warning(f"⚠ 无法解析步进数响应: {steps_response}, 错误: {e}, 使用默认值")
+            else:
+                self.logger.warning("⚠ 无法读取设备步进数, 使用默认值")
 
             return True
         except Exception as e:
@@ -161,6 +180,30 @@ class SynScanProtocol:
             self.logger.error(f"发送命令失败: {e}")
             return None
     
+    def parse_little_endian_hex(self, hex_str: str) -> int:
+        """
+        解析小端序16进制字符串
+
+        固件使用小端序编码: 0x4E2000 -> "00204E"
+        格式: LLMMHH (低字节-中字节-高字节)
+
+        Args:
+            hex_str: 6位16进制字符串
+
+        Returns:
+            整数值
+        """
+        if len(hex_str) != 6:
+            raise ValueError(f"Invalid hex string length: {len(hex_str)}, expected 6")
+
+        # 解析小端序: "00204E" -> 0x4E2000
+        low = int(hex_str[0:2], 16)      # 低字节
+        mid = int(hex_str[2:4], 16)      # 中字节
+        high = int(hex_str[4:6], 16)     # 高字节
+
+        value = (high << 16) | (mid << 8) | low
+        return value
+
     def get_position(self, axis: str) -> Optional[int]:
         """
         获取轴位置(原始步进值)
@@ -174,8 +217,8 @@ class SynScanProtocol:
         response = self.send_command(axis, 'j')  # 'j' = 获取位置
         if response:
             try:
-                # 响应格式: 6位16进制数
-                position = int(response, 16)
+                # 响应格式: 6位16进制数 (小端序)
+                position = self.parse_little_endian_hex(response)
                 return position
             except ValueError as e:
                 self.logger.error(f"解析位置失败 - 轴:{axis}, 响应:'{response}', 错误:{e}")
