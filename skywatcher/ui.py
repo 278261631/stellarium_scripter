@@ -214,7 +214,7 @@ class SkyWatcherUI:
 
         # 速度输入 (16进制,6位)
         ttk.Label(right_frame, text="速度(hex):").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.speed_var = tk.StringVar(value="000010")  # 默认更慢的速度
+        self.speed_var = tk.StringVar(value="000100")  # 默认慢速
         speed_entry = ttk.Entry(right_frame, textvariable=self.speed_var, width=10)
         speed_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
@@ -239,16 +239,32 @@ class SkyWatcherUI:
         # === 控制按钮区域 ===
         button_frame = ttk.Frame(main_frame, padding="10")
         button_frame.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=5)
-        
+
         # 开始/停止按钮
         self.start_button = ttk.Button(button_frame, text="开始监控", command=self.start_monitoring)
         self.start_button.grid(row=0, column=0, padx=5)
-        
+
         self.stop_button = ttk.Button(button_frame, text="停止监控", command=self.stop_monitoring, state=tk.DISABLED)
         self.stop_button.grid(row=0, column=1, padx=5)
-        
+
         # 清除日志按钮
         ttk.Button(button_frame, text="清除日志", command=self.clear_log).grid(row=0, column=2, padx=5)
+
+        # 分隔线
+        ttk.Separator(button_frame, orient='vertical').grid(row=0, column=3, sticky=(tk.N, tk.S), padx=10)
+
+        # 初始化按钮
+        ttk.Button(button_frame, text="初始化RA轴 (F1)", command=self.initialize_ra).grid(row=0, column=4, padx=5)
+        ttk.Button(button_frame, text="初始化DEC轴 (F2)", command=self.initialize_dec).grid(row=0, column=5, padx=5)
+        ttk.Button(button_frame, text="初始化全部", command=self.initialize_all).grid(row=0, column=6, padx=5)
+
+        # 分隔线
+        ttk.Separator(button_frame, orient='vertical').grid(row=0, column=7, sticky=(tk.N, tk.S), padx=10)
+
+        # I指令按钮(设置速度为0)
+        ttk.Button(button_frame, text="停止RA轴 (I1)", command=self.stop_ra_axis).grid(row=0, column=8, padx=5)
+        ttk.Button(button_frame, text="停止DEC轴 (I2)", command=self.stop_dec_axis).grid(row=0, column=9, padx=5)
+        ttk.Button(button_frame, text="停止全部 (I)", command=self.stop_both_axes).grid(row=0, column=10, padx=5)
 
         # 如果设备已连接,自动开启监控
         if self.synscan:
@@ -526,6 +542,92 @@ class SkyWatcherUI:
 
         self.log("停止移动")
         self.synscan.stop_all()
+
+    def initialize_ra(self):
+        """初始化RA轴 (F1命令)"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        self.log("正在初始化RA轴...")
+        if self.synscan.initialize_axis(1):
+            self.log("✓ RA轴初始化成功")
+        else:
+            self.log("✗ RA轴初始化失败")
+
+    def initialize_dec(self):
+        """初始化DEC轴 (F2命令)"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        self.log("正在初始化DEC轴...")
+        if self.synscan.initialize_axis(2):
+            self.log("✓ DEC轴初始化成功")
+        else:
+            self.log("✗ DEC轴初始化失败")
+
+    def initialize_all(self):
+        """初始化所有轴 (F1和F2命令)"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        self.log("正在初始化所有轴...")
+        if self.synscan.initialize_mount():
+            self.log("✓ 所有轴初始化成功")
+        else:
+            self.log("✗ 轴初始化失败")
+
+    def stop_ra_axis(self):
+        """停止RA轴 (I1命令 - 设置速度为0)"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        self.log("正在停止RA轴 (I1 速度=000000)...")
+        # 发送I命令设置速度为0
+        response = self.synscan.send_command(self.synscan.AXIS_RA, 'I', '000000')
+        if response:
+            self.log("✓ RA轴已停止")
+        else:
+            self.log("✗ RA轴停止失败")
+
+    def stop_dec_axis(self):
+        """停止DEC轴 (I2命令 - 设置速度为0)"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        self.log("正在停止DEC轴 (I2 速度=000000)...")
+        # 发送I命令设置速度为0
+        response = self.synscan.send_command(self.synscan.AXIS_DEC, 'I', '000000')
+        if response:
+            self.log("✓ DEC轴已停止")
+        else:
+            self.log("✗ DEC轴停止失败")
+
+    def stop_both_axes(self):
+        """停止两个轴 (I1和I2命令 - 设置速度为0)"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+
+        self.log("正在停止所有轴 (I 速度=000000)...")
+
+        # 停止RA轴
+        ra_response = self.synscan.send_command(self.synscan.AXIS_RA, 'I', '000000')
+        # 停止DEC轴
+        dec_response = self.synscan.send_command(self.synscan.AXIS_DEC, 'I', '000000')
+
+        if ra_response and dec_response:
+            self.log("✓ 所有轴已停止")
+        elif ra_response:
+            self.log("⚠ RA轴已停止, DEC轴停止失败")
+        elif dec_response:
+            self.log("⚠ DEC轴已停止, RA轴停止失败")
+        else:
+            self.log("✗ 所有轴停止失败")
 
     def run(self):
         """运行UI主循环"""
