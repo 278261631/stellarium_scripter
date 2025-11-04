@@ -470,6 +470,92 @@ class SynScanProtocol:
             self.logger.error(f"✗ 发送GOTO命令时出错: {e}")
             return False
 
+    def slew_to_coordinates(self, ra_deg: float, dec_deg: float) -> bool:
+        """
+        使用SkyWatcher标准协议GOTO到指定的RA/DEC位置
+
+        参考MiniEQ.Core的SlewToCoordinates实现:
+        1. 将RA/DEC转换为步数
+        2. 设置GOTO目标位置 (S命令)
+        3. 设置GOTO速度 (I命令)
+        4. 启动运动 (J命令)
+
+        Args:
+            ra_deg: 赤经(度) 0-360
+            dec_deg: 赤纬(度) -90到+90
+
+        Returns:
+            bool: 是否成功
+        """
+        # 将RA从度转换为小时
+        ra_hours = ra_deg / 15.0
+
+        self.logger.info(f"SlewToCoordinates: RA={ra_deg:.4f}° ({ra_hours:.4f}h), DEC={dec_deg:.4f}°")
+
+        try:
+            # 1. 转换为步数
+            # RA: hours * stepsPerRevolution / 24
+            # DEC: degrees * stepsPerRevolution / 360
+            target_ra_steps = int(ra_hours * self.STEPS_PER_REVOLUTION / 24.0)
+            target_dec_steps = int(dec_deg * self.STEPS_PER_REVOLUTION / 360.0)
+
+            self.logger.debug(f"目标步数: RA={target_ra_steps}, DEC={target_dec_steps}")
+
+            # 2. 设置GOTO目标位置 (S命令)
+            # 格式: :S{axis}{steps_hex}\r
+            ra_steps_hex = f"{target_ra_steps:06X}"
+            dec_steps_hex = f"{target_dec_steps:06X}"
+
+            self.logger.debug(f"设置RA目标: :S1{ra_steps_hex}\\r")
+            ra_target_response = self.send_command(self.AXIS_RA, 'S', ra_steps_hex)
+            if ra_target_response is None:
+                self.logger.error("✗ 设置RA目标失败")
+                return False
+
+            self.logger.debug(f"设置DEC目标: :S2{dec_steps_hex}\\r")
+            dec_target_response = self.send_command(self.AXIS_DEC, 'S', dec_steps_hex)
+            if dec_target_response is None:
+                self.logger.error("✗ 设置DEC目标失败")
+                return False
+
+            # 3. 设置GOTO速度 (I命令)
+            # 速度 = stepsPerRevolution / 360 (1度/秒)
+            goto_speed = int(self.STEPS_PER_REVOLUTION / 360)
+            speed_hex = f"{goto_speed:06X}"
+
+            self.logger.debug(f"设置RA速度: :I1{speed_hex}\\r (速度={goto_speed})")
+            ra_speed_response = self.send_command(self.AXIS_RA, 'I', speed_hex)
+            if ra_speed_response is None:
+                self.logger.error("✗ 设置RA速度失败")
+                return False
+
+            self.logger.debug(f"设置DEC速度: :I2{speed_hex}\\r (速度={goto_speed})")
+            dec_speed_response = self.send_command(self.AXIS_DEC, 'I', speed_hex)
+            if dec_speed_response is None:
+                self.logger.error("✗ 设置DEC速度失败")
+                return False
+
+            # 4. 启动运动 (J命令)
+            # 格式: :J{axis}\r
+            self.logger.debug("启动RA轴运动: :J1\\r")
+            ra_start_response = self.send_command(self.AXIS_RA, 'J')
+            if ra_start_response is None:
+                self.logger.error("✗ 启动RA轴失败")
+                return False
+
+            self.logger.debug("启动DEC轴运动: :J2\\r")
+            dec_start_response = self.send_command(self.AXIS_DEC, 'J')
+            if dec_start_response is None:
+                self.logger.error("✗ 启动DEC轴失败")
+                return False
+
+            self.logger.info("✓ SlewToCoordinates命令已发送,设备开始移动")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"✗ SlewToCoordinates时出错: {e}")
+            return False
+
     def set_time(self, year: int, month: int, day: int,
                  hour: int, minute: int, second: int, timezone: int) -> bool:
         """

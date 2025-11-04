@@ -132,28 +132,32 @@ class SkyWatcherUI:
         self.goto_dec_entry.insert(0, "0.0")
 
         # GOTO按钮
-        ttk.Button(goto_frame, text="GOTO (RA/DEC)", command=self.goto_radec).grid(row=0, column=4, padx=10)
+        ttk.Button(goto_frame, text="GOTO (X1)", command=self.goto_radec).grid(row=0, column=4, padx=5)
+
+        # 新的GOTO按钮 (使用SlewToCoordinates方法)
+        ttk.Button(goto_frame, text="GOTO (Slew)", command=self.goto_slew,
+                   style='Accent.TButton').grid(row=0, column=5, padx=5)
 
         # 分隔线
-        ttk.Separator(goto_frame, orient='vertical').grid(row=0, column=5, sticky=(tk.N, tk.S), padx=10)
+        ttk.Separator(goto_frame, orient='vertical').grid(row=0, column=6, sticky=(tk.N, tk.S), padx=10)
 
         # 地平坐标输入
-        ttk.Label(goto_frame, text="方位角:").grid(row=0, column=6, sticky=tk.W)
+        ttk.Label(goto_frame, text="方位角:").grid(row=0, column=7, sticky=tk.W)
         self.goto_az_entry = ttk.Entry(goto_frame, width=10)
-        self.goto_az_entry.grid(row=0, column=7, padx=5)
+        self.goto_az_entry.grid(row=0, column=8, padx=5)
         self.goto_az_entry.insert(0, "0")
 
-        ttk.Label(goto_frame, text="高度角:").grid(row=0, column=8, sticky=tk.W, padx=(10, 0))
+        ttk.Label(goto_frame, text="高度角:").grid(row=0, column=9, sticky=tk.W, padx=(10, 0))
         self.goto_alt_entry = ttk.Entry(goto_frame, width=10)
-        self.goto_alt_entry.grid(row=0, column=9, padx=5)
+        self.goto_alt_entry.grid(row=0, column=10, padx=5)
         self.goto_alt_entry.insert(0, "30")
 
         # GOTO地平坐标按钮
-        ttk.Button(goto_frame, text="GOTO (Az/Alt)", command=self.goto_altaz).grid(row=0, column=10, padx=10)
+        ttk.Button(goto_frame, text="GOTO (Az/Alt)", command=self.goto_altaz).grid(row=0, column=11, padx=10)
 
         # 快速定位按钮
         quick_frame = ttk.Frame(goto_frame)
-        quick_frame.grid(row=1, column=0, columnspan=11, pady=(10, 0))
+        quick_frame.grid(row=1, column=0, columnspan=12, pady=(10, 0))
 
         ttk.Label(quick_frame, text="快速定位:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
 
@@ -417,6 +421,30 @@ class SkyWatcherUI:
                         self.log(f"🎨 切换颜色: {self.stellarium_sync.COLORS[self.stellarium_sync.color_index]}")
                 else:
                     self.log("✗ GOTO命令失败")
+            else:
+                self.log("✗ 设备未连接")
+
+        except ValueError:
+            self.log("✗ 坐标格式错误,请输入数字")
+
+    def goto_slew(self):
+        """使用SlewToCoordinates方法GOTO到指定的RA/DEC坐标"""
+        try:
+            ra_deg = float(self.goto_ra_entry.get())
+            dec_deg = float(self.goto_dec_entry.get())
+
+            self.log(f"GOTO (Slew) RA/DEC: RA={ra_deg}° DEC={dec_deg}°")
+
+            if self.synscan:
+                if self.synscan.slew_to_coordinates(ra_deg, dec_deg):
+                    self.log("✓ SlewToCoordinates命令已发送")
+
+                    # 换颜色
+                    if self.stellarium_sync:
+                        self.stellarium_sync.next_color()
+                        self.log(f"🎨 切换颜色: {self.stellarium_sync.COLORS[self.stellarium_sync.color_index]}")
+                else:
+                    self.log("✗ SlewToCoordinates命令失败")
             else:
                 self.log("✗ 设备未连接")
 
