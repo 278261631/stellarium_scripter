@@ -413,23 +413,61 @@ class SynScanProtocol:
         steps = int((degrees / 360.0) * self.STEPS_PER_REVOLUTION)
         return steps % self.STEPS_PER_REVOLUTION
 
+    def get_axis_degree(self, axis: str) -> Optional[float]:
+        """
+        读取单轴当前坐标(度) — 适配新固件 j1/j2 返回十进制度字符串。
+
+        Args:
+            axis: '1' = RA, '2' = DEC
+        Returns:
+            角度(度)。RA归一为[0,360)，DEC限制在[-90,90]；失败返回None。
+        """
+        resp = self.send_command(axis, 'j')
+        if resp is None:
+            return None
+        s = resp.strip()
+        try:
+            deg = float(s)
+            if axis == self.AXIS_RA:
+                return self.range360(deg)
+            # DEC
+            if deg < -90.0:
+                deg = -90.0
+            if deg > 90.0:
+                deg = 90.0
+            return deg
+        except ValueError:
+            # 非十进制度格式(可能是旧固件6位HEX)，交由兼容路径处理
+            return None
+
     def get_ra_dec(self) -> Optional[Tuple[float, float]]:
         """
         获取当前RA/DEC位置(度)
+
+        优先使用新固件 j1/j2 直接返回的十进制度；
+        若不可用，则回退到旧协议: 读取步进值并转换为赤道坐标。
 
         Returns:
             (RA, DEC) 元组,单位为度,失败返回None
             RA: 0-360°
             DEC: -90到+90°
         """
+        # 尝试新固件直读
+        ra_deg = self.get_axis_degree(self.AXIS_RA)
+        dec_deg = self.get_axis_degree(self.AXIS_DEC)
+        if ra_deg is not None and dec_deg is not None:
+            self.current_ra = ra_deg
+            self.current_dec = dec_deg
+            self.logger.info(f"坐标(j直读): RA={ra_deg:.6f}°, DEC={dec_deg:.6f}°")
+            return (ra_deg, dec_deg)
+
+        # 回退: 旧固件-读取步进并转换
         ra_steps = self.get_position(self.AXIS_RA)
         dec_steps = self.get_position(self.AXIS_DEC)
-
         if ra_steps is None:
             self.logger.error("获取RA位置失败")
         if dec_steps is None:
             self.logger.error("获取DEC位置失败")
-
         if ra_steps is not None and dec_steps is not None:
             ra_deg, dec_deg = self.encoders_to_radec(ra_steps, dec_steps)
             self.current_ra = ra_deg
@@ -539,10 +577,10 @@ class SynScanProtocol:
         """
         GOTO到指定的RA/DEC位置
 
-        使用固件的X1命令(自定义协议):
-        - :X1{RA_hours},{DEC_deg}\r 设置目标坐标并触发GOTO
-        - RA: 小时 (0-24h) - 固件内部通过 * PI / 12 转换为弧度
-        - DEC: 度 (-90到+90°) - 固件内部通过 * PI / 180 转换为弧度
+        使用固件的新 j1/j2 命令(单位: 度):
+        - :j1{RA_deg}\r
+        - :j2{DEC_deg}\r
+        固件接收后直接按指定赤道坐标执行GOTO
 
         Args:
             ra_deg: 赤经(度) 0-360
@@ -551,64 +589,39 @@ class SynScanProtocol:
         Returns:
             bool: 是否成功
         """
-        # 将RA从度转换为小时 (0-360° → 0-24h)
-        ra_hours = ra_deg / 15.0
+        # 参数校验
+        if not (0.0 <= ra_deg < 360.0) or not (-90.0 <= dec_deg <= 90.0):
+            self.logger.error(f"✗ 无效坐标: RA={ra_deg}, DEC={dec_deg}")
+            return False
 
-        self.logger.info(f"GOTO: RA={ra_deg:.4f}° ({ra_hours:.4f}h), DEC={dec_deg:.4f}°")
-
-        # 使用X1命令发送目标坐标
-        # 格式: :X1{RA小时},{DEC度}\r
-        # 固件会调用 CoordinateManager::setTargetCoordinates(ra_hours, dec_deg)
-        # 并设置 Initialize = true 触发 TrajectoryPlanner::MountGoto()
+        self.logger.info(f"GOTO(j): RA={ra_deg:.4f}°, DEC={dec_deg:.4f}°")
 
         try:
-            # 1. 发送G200指令 (设置GOTO模式)
+            # 1. 可选: 设置GOTO模式
             self.logger.debug("发送G200指令: :G200\\r")
             if self.serial and self.serial.is_open:
                 self.serial.write(b':G200\r')
                 time.sleep(0.05)
-                # 读取响应
-                response = self.serial.read(self.serial.in_waiting or 2).decode('ascii', errors='ignore')
-                self.logger.debug(f"G200响应: {repr(response)}")
-                if '=' not in response:
-                    self.logger.warning("⚠ G200指令响应异常,继续执行")
+                g200_resp = self.serial.read(self.serial.in_waiting or 2).decode('ascii', errors='ignore')
+                self.logger.debug(f"G200响应: {repr(g200_resp)}")
             else:
                 self.logger.warning("⚠ 设备未连接,跳过G200指令")
 
-            # 2. 构建X1命令 - 注意RA使用小时而不是度!
-            cmd = f":X1{ra_hours:.6f},{dec_deg:.6f}\r"
-            self.logger.debug(f"发送X1命令: {repr(cmd)}")
+            # 2. 发送 j1/j2 坐标(单位: 度)
+            ra_resp = self.send_command(self.AXIS_RA, 'j', f"{ra_deg:.6f}")
+            dec_resp = self.send_command(self.AXIS_DEC, 'j', f"{dec_deg:.6f}")
 
-            # 清空输入缓冲区
-            self.serial.reset_input_buffer()
+            self.logger.debug(f"j1响应: {repr(ra_resp)}, j2响应: {repr(dec_resp)}")
 
-            # 发送命令
-            self.serial.write(cmd.encode('ascii'))
-
-            # 读取响应
-            response = ""
-            start_time = time.time()
-
-            while time.time() - start_time < self.timeout:
-                if self.serial.in_waiting > 0:
-                    char = self.serial.read(1).decode('ascii')
-                    response += char
-                    if char == '\r':
-                        break
-                else:
-                    time.sleep(0.01)
-
-            self.logger.debug(f"收到响应: {repr(response)}")
-
-            if response.startswith('='):
-                self.logger.info("✓ GOTO命令已发送,设备开始移动")
+            if (ra_resp is not None) and (dec_resp is not None):
+                self.logger.info("✓ GOTO命令已发送(j1/j2)")
                 return True
             else:
-                self.logger.error(f"✗ GOTO命令失败,响应: {repr(response)}")
+                self.logger.error(f"✗ GOTO命令失败: j1={repr(ra_resp)}, j2={repr(dec_resp)}")
                 return False
 
         except Exception as e:
-            self.logger.error(f"✗ 发送GOTO命令时出错: {e}")
+            self.logger.error(f"✗ 发送GOTO(j)时出错: {e}")
             return False
 
     def slew_to_coordinates(self, ra_deg: float, dec_deg: float) -> bool:
