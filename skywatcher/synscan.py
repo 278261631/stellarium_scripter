@@ -84,6 +84,28 @@ class SynScanProtocol:
             self.logger.info(f"已连接到 {self.port}, 波特率: {self.baudrate}")
             time.sleep(0.5)  # 等待连接稳定
 
+            # 在初始化轴之前，先下发时间(:T1)与位置(:Z1)
+            try:
+                from datetime import datetime
+                now = datetime.now().astimezone()
+                tz_seconds = now.utcoffset().total_seconds() if now.utcoffset() else 0
+                tz_hours = int(round(tz_seconds / 3600.0))
+                self.logger.info(f"下发时间(:T1) {now.strftime('%Y-%m-%d %H:%M:%S')} 时区UTC{tz_hours:+d}")
+                self.set_time(now.year, now.month, now.day, now.hour, now.minute, now.second, tz_hours)
+            except Exception as e:
+                self.logger.warning(f"⚠ 下发时间(:T1)失败: {e}")
+
+            try:
+                if self.latitude is not None and self.longitude is not None:
+                    self.logger.info(f"下发位置(:Z1) lat={self.latitude:.4f}, lon={self.longitude:.4f}")
+                    # elevation 未指定则为0；如果之前未调用 set_location，这里按 0m 处理
+                    self.set_location(self.latitude, self.longitude, 0)
+                else:
+                    self.logger.info("未提供观测地经纬度，跳过:Z1；可在连接前调用 set_location() 预置。")
+            except Exception as e:
+                self.logger.warning(f"⚠ 下发位置(:Z1)失败: {e}")
+
+
             # 初始化轴 (必须!)
             self.logger.info("初始化轴...")
             ra_init = self.send_command(self.AXIS_RA, 'F')
