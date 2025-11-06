@@ -124,10 +124,11 @@ class StellariumSync:
 LabelMgr.deleteLabel("TELESCOPE");
 
 // 在当前望远镜位置显示标记 (使用当前颜色)
-LabelMgr.labelEquatorial("•", "{ra_str}", "{dec_str}", true, 40, "{color}", "", -1.0, false, 0, true);
+MarkerMgr.markerEquatorial("{ra_str}", "{dec_str}", true, true, "dotted", "{color}", 6.0, false, 0, true);
 '''
 
         try:
+            self.logger.info("执行Stellarium脚本(更新位置):\n%s", script)
             response = requests.post(
                 f"{self.api_url}/scripts/direct",
                 data={"code": script},
@@ -174,6 +175,7 @@ var dec = {dec_deg};
 '''
         
         try:
+            self.logger.info("执行Stellarium脚本(指向位置):\n%s", script)
             response = requests.post(
                 f"{self.api_url}/scripts/direct",
                 data={"code": script},
@@ -194,6 +196,7 @@ var dec = {dec_deg};
         script = 'LabelMgr.deleteLabel("TELESCOPE");'
 
         try:
+            self.logger.info("执行Stellarium脚本(清除标记):\n%s", script)
             response = requests.post(
                 f"{self.api_url}/scripts/direct",
                 data={"code": script},
@@ -234,7 +237,7 @@ var dec = {dec_deg};
             mid_dec = start_dec + (end_dec - start_dec) * t
             mid_ra_str, mid_dec_str = self.ra_dec_to_hms_dms(mid_ra, mid_dec)
             # 使用 MarkerMgr 画中心对齐的十字标记，避免文本偏移
-            script += f'MarkerMgr.markerEquatorial("{mid_ra_str}", "{mid_dec_str}", true, true, "cross", "{color}", 6.0, false, 0, true);\n'
+            script += f'MarkerMgr.markerEquatorial("{mid_ra_str}", "{mid_dec_str}", true, true, "dotted", "{color}", 6.0, false, 0, true);\n'
 
         # 打印完整脚本
         self.logger.info("=" * 80)
@@ -244,6 +247,7 @@ var dec = {dec_deg};
         self.logger.info("=" * 80)
 
         try:
+            self.logger.info("执行Stellarium脚本(绘制路径 #%s, 颜色: %s):\n%s", self.goto_count, color, script)
             response = requests.post(
                 f"{self.api_url}/scripts/direct",
                 data={"code": script},
@@ -272,9 +276,19 @@ var dec = {dec_deg};
         script = '''
 // 清除所有标签
 LabelMgr.deleteAllLabels();
+
+// 清除所有标记 (MarkerMgr)
+try { MarkerMgr.deleteAllMarkers(); } catch (e) {}
+try { MarkerMgr.deleteAll(); } catch (e) {}
+try { if (MarkerMgr && MarkerMgr.deleteByType) {
+    MarkerMgr.deleteByType("dotted");
+    MarkerMgr.deleteByType("circle");
+    MarkerMgr.deleteByType("cross");
+}} catch (e) {}
 '''
 
         try:
+            self.logger.info("执行Stellarium脚本(清除所有绘制):\n%s", script)
             response = requests.post(
                 f"{self.api_url}/scripts/direct",
                 data={"code": script},
