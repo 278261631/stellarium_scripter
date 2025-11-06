@@ -41,30 +41,39 @@ def main():
                         help='启用调试日志')
     parser.add_argument('--no-serial', action='store_true',
                         help='不连接串口(仅测试UI)')
-    
+    # 可选：在连接前预置观测地（海拔默认0），以便在轴初始化前下发:Z1
+    parser.add_argument('--lat', type=float, help='观测地纬度(度, 北纬为正)')
+    parser.add_argument('--lon', type=float, help='观测地经度(度, 东经为正)')
+    parser.add_argument('--elev', type=int, default=0, help='海拔(米), 默认0')
+
     args = parser.parse_args()
-    
+
     # 设置日志级别
     log_level = logging.DEBUG if args.debug else logging.INFO
     setup_logging(log_level)
-    
+
     logger = logging.getLogger('Main')
-    
+
     # 初始化组件
     synscan = None
     stellarium_sync = None
-    
+
     # 连接串口
     if not args.no_serial:
         logger.info(f"连接到串口: {args.port}, 波特率: {args.baudrate}")
         synscan = SynScanProtocol(args.port, args.baudrate)
+        # 若通过参数提供了经纬度，则在连接前把值写入对象，connect() 会在初始化轴前下发:Z1
+        if args.lat is not None and args.lon is not None:
+            synscan.latitude = args.lat
+            synscan.longitude = args.lon
+            synscan.default_elevation = int(args.elev)
 
         if not synscan.connect():
             logger.error("串口连接失败! 继续以仅UI模式运行...")
             synscan = None
     else:
         logger.info("跳过串口连接(仅UI模式)")
-    
+
     # 连接Stellarium
     logger.info(f"连接到Stellarium: {args.stellarium}")
     stellarium_sync = StellariumSync(args.stellarium)

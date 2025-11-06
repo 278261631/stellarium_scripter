@@ -34,6 +34,11 @@ class SynScanProtocol:
     STEPS_PER_REVOLUTION = 5120000  # 使用miniEQ固件的实际值
     # 标准SkyWatcher: 0x1000000 (16777216) 步/圈
 
+    # 默认观测地(用于未提供经纬度时下发:Z1)
+    DEFAULT_LAT = 40.0
+    DEFAULT_LON = 120.0
+    DEFAULT_ELEVATION = 0
+
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0):
         """
         初始化SynScan协议
@@ -97,11 +102,17 @@ class SynScanProtocol:
 
             try:
                 if self.latitude is not None and self.longitude is not None:
-                    self.logger.info(f"下发位置(:Z1) lat={self.latitude:.4f}, lon={self.longitude:.4f}")
+                    elev = getattr(self, 'default_elevation', 0)
+                    self.logger.info(f"下发位置(:Z1) lat={self.latitude:.4f}, lon={self.longitude:.4f}, elev={elev}m (默认0)")
                     # elevation 未指定则为0；如果之前未调用 set_location，这里按 0m 处理
-                    self.set_location(self.latitude, self.longitude, 0)
+                    self.set_location(self.latitude, self.longitude, elev)
                 else:
-                    self.logger.info("未提供观测地经纬度，跳过:Z1；可在连接前调用 set_location() 预置。")
+                    # 使用默认经纬度与海拔(0)下发 :Z1，避免跳过
+                    lat = getattr(self, 'DEFAULT_LAT', 40.0)
+                    lon = getattr(self, 'DEFAULT_LON', 120.0)
+                    elev = getattr(self, 'default_elevation', getattr(self, 'DEFAULT_ELEVATION', 0))
+                    self.logger.debug(f"未提供经纬度，使用默认值下发:Z1 lat={lat:.4f}, lon={lon:.4f}, elev={elev}")
+                    self.set_location(lat, lon, elev)
             except Exception as e:
                 self.logger.warning(f"⚠ 下发位置(:Z1)失败: {e}")
 
