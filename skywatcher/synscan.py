@@ -14,7 +14,7 @@ import struct
 
 class SynScanProtocol:
     """SkyWatcher SynScan 协议通信类"""
-    
+
     # 命令定义
     CMD_GET_RA_POSITION = 'e'      # 获取赤经位置
     CMD_GET_DEC_POSITION = 'e'     # 获取赤纬位置
@@ -23,7 +23,7 @@ class SynScanProtocol:
     CMD_GOTO_RA = 'r'              # GOTO赤经
     CMD_GOTO_DEC = 'r'             # GOTO赤纬
     CMD_STOP = 'K'                 # 停止
-    
+
     # 轴定义
     AXIS_RA = '1'   # 赤经轴
     AXIS_DEC = '2'  # 赤纬轴
@@ -33,11 +33,11 @@ class SynScanProtocol:
     # miniEQ固件实际使用: 5120000 步/圈 (200步 * 256细分 * 100减速比)
     STEPS_PER_REVOLUTION = 5120000  # 使用miniEQ固件的实际值
     # 标准SkyWatcher: 0x1000000 (16777216) 步/圈
-    
+
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0):
         """
         初始化SynScan协议
-        
+
         Args:
             port: 串口名称 (如 'COM3' 或 '/dev/ttyUSB0')
             baudrate: 波特率 (默认9600)
@@ -47,19 +47,28 @@ class SynScanProtocol:
         self.baudrate = baudrate
         self.timeout = timeout
         self.serial: Optional[serial.Serial] = None
-        
+
         # 设置日志
         self.logger = logging.getLogger('SynScan')
         self.logger.setLevel(logging.DEBUG)
-        
+
         # 当前位置缓存
         self.current_ra = 0.0
         self.current_dec = 0.0
-        
+
+        # 观测地与天区参数
+        self.latitude: Optional[float] = None
+        self.longitude: Optional[float] = None
+        self.hemisphere: str = 'NORTH'  # 'NORTH' 或 'SOUTH'
+
+        # 编码器零点(初始化/回零时可记录)
+        self.zero_ra_encoder: int = 0
+        self.zero_dec_encoder: int = 0
+
     def connect(self) -> bool:
         """
         连接到串口设备
-        
+
         Returns:
             bool: 连接是否成功
         """
@@ -113,37 +122,37 @@ class SynScanProtocol:
         except Exception as e:
             self.logger.error(f"连接失败: {e}")
             return False
-    
+
     def disconnect(self):
         """断开串口连接"""
         if self.serial and self.serial.is_open:
             self.serial.close()
             self.logger.info("已断开连接")
-    
+
     def send_command(self, axis: str, command: str, data: str = "") -> Optional[str]:
         """
         发送SynScan命令
-        
+
         Args:
             axis: 轴 ('1'=RA, '2'=DEC)
             command: 命令字符
             data: 数据(可选)
-            
+
         Returns:
             响应字符串,失败返回None
         """
         if not self.serial or not self.serial.is_open:
             self.logger.error("串口未连接")
             return None
-        
+
         try:
             # 构建命令: :命令轴数据\r
             cmd = f":{command}{axis}{data}\r"
             self.logger.debug(f"发送命令: {repr(cmd)}")
-            
+
             # 清空输入缓冲区
             self.serial.reset_input_buffer()
-            
+
             # 发送命令
             self.serial.write(cmd.encode('ascii'))
 
@@ -183,11 +192,11 @@ class SynScanProtocol:
             else:
                 self.logger.warning(f"响应超时或格式错误: {response}")
                 return None
-                
+
         except Exception as e:
             self.logger.error(f"发送命令失败: {e}")
             return None
-    
+
     def parse_little_endian_hex(self, hex_str: str) -> int:
         """
         解析小端序16进制字符串
@@ -211,6 +220,125 @@ class SynScanProtocol:
 
         value = (high << 16) | (mid << 8) | low
         return value
+    def range24(self, h: float) -> float:
+        """将小时数规范到[0,24)。"""
+        return h % 24.0
+
+    def range360(self, d: float) -> float:
+        """将角度规范到[0,360)。"""
+        return d % 360.0
+
+    def range_dec(self, d: float) -> float:
+        """
+        将0-360°的DEC环形角度映射到赤纬[-90°, +90°]。
+        匹配EQMOD中的处理思想。
+        """
+        d = self.range360(d)
+        if d <= 90.0:
+            return d
+        if d <= 180.0:
+            return 180.0 - d
+        if d <= 270.0:
+            return 180.0 - d
+        return d - 360.0
+
+    def range_ha(self, h: float) -> float:
+        """
+        规范时角到[-12, +12)小时区间。
+        """
+        h = ((h + 12.0) % 24.0) - 12.0
+        return h
+
+    def compute_lst_hours(self) -> float:
+        """
+        计算当前本地恒星时(小时)。
+        使用与 altaz_to_radec 中相同的简化GMST/LST计算。
+        若未设置经度，默认0。
+        """
+        import math
+        from datetime import datetime, timezone
+        lon_deg = self.longitude if self.longitude is not None else 0.0
+        now = datetime.now(timezone.utc)
+        jd = 2451545.0 + (now - datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc)).total_seconds() / 86400.0
+        gmst = (280.46061837 + 360.98564736629 * (jd - 2451545.0)) % 360.0
+        lst_deg = (gmst + lon_deg) % 360.0
+        lst_hours = lst_deg / 15.0
+        self.logger.debug(f"LST计算: 经度={lon_deg:.4f}°, GMST={gmst:.6f}°, LST={lst_deg:.6f}° -> {lst_hours:.6f}h")
+        return lst_hours
+
+    def encoder_to_hours(self, step: int, initstep: int) -> float:
+        """
+        将编码器步数转换为时角(小时)。
+        参考EQMOD::EncoderToHours逻辑，考虑半球与6小时偏移。
+        """
+        totalstep = self.STEPS_PER_REVOLUTION
+        if step > initstep:
+            base_hours = (float(step - initstep) / float(totalstep)) * 24.0
+            base_hours = 24.0 - base_hours
+        else:
+            base_hours = (float(initstep - step) / float(totalstep)) * 24.0
+        if self.hemisphere == 'NORTH':
+            result = self.range24(base_hours + 6.0)
+        else:
+            result = self.range24((24.0 - base_hours) + 6.0)
+        self.logger.debug(f"RA编码->HA: step={step}, zero={initstep}, total={totalstep}, base={base_hours:.6f}h, hemi={self.hemisphere}, +6h后={result:.6f}h")
+        return result
+
+    def encoder_to_degrees(self, step: int, initstep: int) -> float:
+        """
+        将编码器步数转换为0-360°。
+        参考EQMOD::EncoderToDegrees逻辑，考虑半球翻转。
+        """
+        totalstep = self.STEPS_PER_REVOLUTION
+        if step > initstep:
+            base_deg = (float(step - initstep) / float(totalstep)) * 360.0
+        else:
+            base_deg = (float(initstep - step) / float(totalstep)) * 360.0
+            base_deg = 360.0 - base_deg
+        if self.hemisphere == 'NORTH':
+            result = self.range360(base_deg)
+        else:
+            result = self.range360(360.0 - base_deg)
+        self.logger.debug(f"DEC编码->raw度: step={step}, zero={initstep}, total={totalstep}, base={base_deg:.6f}°, hemi={self.hemisphere}, 变换后={result:.6f}°")
+        return result
+
+    def encoders_to_radec(self, ra_step: int, dec_step: int) -> Tuple[float, float]:
+        """
+        依据编码器步数、半球和当前LST，计算RA(度)与DEC(度)。
+        参考EQMOD::EncodersToRADec。
+        """
+        self.logger.debug(f"j转换: 输入步数 RA={ra_step}, DEC={dec_step}")
+        # 1) 编码器->时角/度
+        ha_hours = self.encoder_to_hours(ra_step, self.zero_ra_encoder)
+        dec_raw_deg = self.encoder_to_degrees(dec_step, self.zero_dec_encoder)
+        self.logger.debug(f"中间: HA={ha_hours:.6f}h, DEC_raw={dec_raw_deg:.6f}°")
+        # 2) LST(小时)
+        lst_hours = self.compute_lst_hours()
+        self.logger.debug(f"LST={lst_hours:.6f}h")
+        # 3) RA(小时) = LST - HA
+        ra_hours = lst_hours - ha_hours
+        self.logger.debug(f"RA(h)初始: LST-HA={ra_hours:.6f}h")
+        # 4) 按DEC位置与半球对RA进行跨子午线的12小时修正
+        adjust = 0.0
+        if self.hemisphere == 'NORTH':
+            if (dec_raw_deg > 90.0) and (dec_raw_deg <= 270.0):
+                adjust = -12.0
+        else:
+            if (dec_raw_deg <= 90.0) or (dec_raw_deg > 270.0):
+                adjust = 12.0
+        if adjust != 0.0:
+            ra_hours += adjust
+        self.logger.debug(f"RA跨子午线修正: hemi={self.hemisphere}, DEC_raw={dec_raw_deg:.6f}°, 调整={adjust:+.1f}h, 结果={ra_hours:.6f}h")
+        # 5) 归一化
+        ha_norm = self.range_ha(ha_hours)
+        ra_norm = self.range24(ra_hours)
+        dec_deg = self.range_dec(dec_raw_deg)
+        ra_deg = ra_norm * 15.0
+        self.logger.debug(f"归一化: HA={ha_norm:.6f}h, RA={ra_norm:.6f}h ({ra_deg:.6f}°), DEC={dec_deg:.6f}°")
+        return ra_deg, dec_deg
+
+
+
 
     def get_position(self, axis: str) -> Optional[int]:
         """
@@ -227,6 +355,8 @@ class SynScanProtocol:
             try:
                 # 响应格式: 6位16进制数 (小端序)
                 position = self.parse_little_endian_hex(response)
+                axis_name = 'RA' if axis == self.AXIS_RA else 'DEC'
+                self.logger.debug(f"j[{axis_name}] 原始响应='{response}', 解析步数={position} (0x{position:06X})")
                 return position
             except ValueError as e:
                 self.logger.error(f"解析位置失败 - 轴:{axis}, 响应:'{response}', 错误:{e}")
@@ -234,33 +364,33 @@ class SynScanProtocol:
         else:
             self.logger.error(f"获取位置失败 - 轴:{axis}, 无响应或响应为空")
         return None
-    
+
     def steps_to_degrees(self, steps: int) -> float:
         """
         将步进值转换为角度
-        
+
         Args:
             steps: 步进值
-            
+
         Returns:
             角度 (0-360)
         """
         degrees = (steps / self.STEPS_PER_REVOLUTION) * 360.0
         return degrees % 360.0
-    
+
     def degrees_to_steps(self, degrees: float) -> int:
         """
         将角度转换为步进值
-        
+
         Args:
             degrees: 角度
-            
+
         Returns:
             步进值
         """
         steps = int((degrees / 360.0) * self.STEPS_PER_REVOLUTION)
         return steps % self.STEPS_PER_REVOLUTION
-    
+
     def get_ra_dec(self) -> Optional[Tuple[float, float]]:
         """
         获取当前RA/DEC位置(度)
@@ -279,56 +409,32 @@ class SynScanProtocol:
             self.logger.error("获取DEC位置失败")
 
         if ra_steps is not None and dec_steps is not None:
-            # RA: 转换为0-360度
-            ra_deg = self.steps_to_degrees(ra_steps)
-
-            # DEC: 转换为度,然后映射到-90到+90
-            dec_deg = self.steps_to_degrees(dec_steps)
-
-            # DEC的映射:
-            # 0-90°   -> 0到+90°   (北半球)
-            # 90-180° -> +90到0°   (过北极点)
-            # 180-270° -> 0到-90°  (南半球)
-            # 270-360° -> -90到0°  (过南极点)
-
-            if dec_deg <= 90:
-                # 0-90° -> 0到+90°
-                dec_deg_normalized = dec_deg
-            elif dec_deg <= 180:
-                # 90-180° -> +90到0°
-                dec_deg_normalized = 180 - dec_deg
-            elif dec_deg <= 270:
-                # 180-270° -> 0到-90°
-                dec_deg_normalized = 180 - dec_deg
-            else:
-                # 270-360° -> -90到0°
-                dec_deg_normalized = dec_deg - 360
-
+            ra_deg, dec_deg = self.encoders_to_radec(ra_steps, dec_steps)
             self.current_ra = ra_deg
-            self.current_dec = dec_deg_normalized
-
-            return (ra_deg, dec_deg_normalized)
+            self.current_dec = dec_deg
+            self.logger.info(f"坐标(j转换): RA={ra_deg:.6f}°, DEC={dec_deg:.6f}°")
+            return (ra_deg, dec_deg)
         return None
-    
+
     def get_version(self) -> Optional[str]:
         """
         获取固件版本
-        
+
         Returns:
             版本字符串,失败返回None
         """
         response = self.send_command(self.AXIS_RA, 'e')  # 'e' = 获取版本
         return response
-    
+
     def stop(self, axis: str):
         """
         停止轴运动
-        
+
         Args:
             axis: 轴 ('1'=RA, '2'=DEC)
         """
         self.send_command(axis, 'K')
-    
+
     def stop_all(self):
         """停止所有轴"""
         self.stop(self.AXIS_RA)
@@ -720,6 +826,11 @@ class SynScanProtocol:
             bool: 是否成功
         """
         self.logger.info(f"设置位置: 纬度={latitude:.4f}°, 经度={longitude:.4f}°, 海拔={elevation}m")
+        # local cache: used to compute LST
+        self.latitude = latitude
+        self.longitude = longitude
+        self.hemisphere = 'NORTH' if latitude >= 0.0 else 'SOUTH'
+
 
         try:
             # 构建Z1命令
