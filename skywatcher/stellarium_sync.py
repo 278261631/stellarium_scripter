@@ -118,7 +118,7 @@ class StellariumSync:
         # 获取当前颜色
         color = self.COLORS[self.color_index]
 
-        # 使用LabelMgr在当前位置显示标记
+        # 使用 LabelMgr 在当前位置显示标记（保留原实现）
         script = f'''
 // 清除旧的望远镜标记
 LabelMgr.deleteLabel("TELESCOPE");
@@ -126,14 +126,14 @@ LabelMgr.deleteLabel("TELESCOPE");
 // 在当前望远镜位置显示标记 (使用当前颜色)
 LabelMgr.labelEquatorial("•", "{ra_str}", "{dec_str}", true, 40, "{color}", "", -1.0, false, 0, true);
 '''
-        
+
         try:
             response = requests.post(
                 f"{self.api_url}/scripts/direct",
                 data={"code": script},
                 timeout=2
             )
-            
+
             if response.status_code == 200:
                 self.last_ra = ra_deg
                 self.last_dec = dec_deg
@@ -233,8 +233,8 @@ var dec = {dec_deg};
             mid_ra = start_ra + (end_ra - start_ra) * t
             mid_dec = start_dec + (end_dec - start_dec) * t
             mid_ra_str, mid_dec_str = self.ra_dec_to_hms_dms(mid_ra, mid_dec)
-            # 使用 "•" 作为标记点(使用不同的符号避免混淆)
-            script += f'LabelMgr.labelEquatorial("•", "{mid_ra_str}", "{mid_dec_str}", true, 35, "{color}", "", -1.0, false, 0, true);\n'
+            # 使用 MarkerMgr 画中心对齐的十字标记，避免文本偏移
+            script += f'MarkerMgr.markerEquatorial("{mid_ra_str}", "{mid_dec_str}", true, true, "cross", "{color}", 6.0, false, 0, true);\n'
 
         # 打印完整脚本
         self.logger.info("=" * 80)
