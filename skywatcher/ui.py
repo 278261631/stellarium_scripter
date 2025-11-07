@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Optional
 import logging
 import re
+from serial.tools import list_ports
+from config import load_config, save_config
 
 
 class SkyWatcherUI:
@@ -98,6 +100,24 @@ class SkyWatcherUI:
         ttk.Label(status_frame, text="Stellarium:").grid(row=0, column=2, sticky=tk.W, padx=20)
         self.stellarium_status = ttk.Label(status_frame, text="未连接", foreground="red")
         self.stellarium_status.grid(row=0, column=3, sticky=tk.W, padx=10)
+        # 串口选择/连接行
+        port_row = 1
+        ttk.Label(status_frame, text="端口:").grid(row=port_row, column=0, sticky=tk.W, pady=(6, 0))
+        self.selected_port_var = tk.StringVar(value="")
+        self.port_combo = ttk.Combobox(status_frame, textvariable=self.selected_port_var, width=12, state="readonly")
+        self.port_combo.grid(row=port_row, column=1, sticky=tk.W, pady=(6, 0))
+        ttk.Button(status_frame, text="刷新", command=self.refresh_serial_ports).grid(row=port_row, column=2, sticky=tk.W, padx=6, pady=(6, 0))
+        ttk.Button(status_frame, text="连接", command=self.connect_selected_port).grid(row=port_row, column=3, sticky=tk.W, padx=6, pady=(6, 0))
+        ttk.Button(status_frame, text="断开", command=self.disconnect_serial).grid(row=port_row, column=4, sticky=tk.W, padx=6, pady=(6, 0))
+
+        # 初始化端口列表与默认值
+        try:
+            cfg = load_config()
+            saved_port = cfg.get('serial_port')
+        except Exception:
+            saved_port = None
+        self.refresh_serial_ports(pref_port=saved_port)
+
 
         # === 设备信息区域 ===
         info_frame = ttk.LabelFrame(main_frame, text="设备信息", padding="10")
@@ -526,6 +546,81 @@ class SkyWatcherUI:
             self.stellarium_status.config(text="已连接", foreground="green")
         else:
             self.stellarium_status.config(text="未连接", foreground="red")
+
+    def refresh_serial_ports(self, pref_port: Optional[str] = None):
+        """刷新可用串口列表，并优先选中 pref_port 或当前已连接串口"""
+        try:
+            ports = [p.device for p in list_ports.comports()]
+        except Exception:
+            ports = []
+        if not ports:
+            ports = []
+        self.port_combo['values'] = ports
+
+        # 优先顺序：已连接端口 > 传入的pref_port > 配置中保存的 > 列表第一个
+        current = None
+        if getattr(self, 'synscan', None) and getattr(self.synscan, 'serial', None) and self.synscan.serial and self.synscan.serial.is_open:
+            current = getattr(self.synscan, 'port', None)
+        target = current or pref_port or (None)
+        if target and target in ports:
+            self.selected_port_var.set(target)
+        elif ports:
+            if not self.selected_port_var.get():
+                self.selected_port_var.set(ports[0])
+
+    def connect_selected_port(self):
+        """使用下拉框选中的端口进行连接，并保存到配置文件"""
+        port = (self.selected_port_var.get() or '').strip()
+        if not port:
+            self.log("✗ 请选择串口端口")
+            return
+
+        # 若已连接且是同一端口
+        try:
+            if self.synscan and getattr(self.synscan, 'serial', None) and self.synscan.serial and self.synscan.serial.is_open:
+                if getattr(self.synscan, 'port', None) == port:
+                    self.log(f"✓ 已连接到 {port}")
+                    return
+                # 断开旧连接
+                try:
+                    self.synscan.disconnect()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        from synscan import SynScanProtocol
+        try:
+            new_syn = SynScanProtocol(port, 9600)
+            if new_syn.connect():
+                self.synscan = new_syn
+                self.update_status(True, getattr(self, 'stellarium_sync', None) is not None)
+                self.log(f"✓ 串口已连接: {port}")
+                # 保存到配置
+                try:
+                    cfg = load_config()
+                    cfg['serial_port'] = port
+                    cfg['baudrate'] = 9600
+                    save_config(cfg)
+                    self.log("✓ 已保存到配置文件")
+                except Exception:
+                    pass
+            else:
+                self.log("✗ 串口连接失败")
+        except Exception as e:
+            self.log(f"✗ 串口连接异常: {e}")
+
+    def disconnect_serial(self):
+        """断开当前串口连接"""
+        if self.synscan and getattr(self.synscan, 'serial', None) and self.synscan.serial and self.synscan.serial.is_open:
+            try:
+                self.synscan.disconnect()
+                self.update_status(False, getattr(self, 'stellarium_sync', None) is not None)
+                self.log("✓ 串口已断开")
+            except Exception as e:
+                self.log(f"✗ 断开失败: {e}")
+        else:
+            self.log("ⓘ 当前无串口连接")
 
     def update_position(self, ra_deg: float, dec_deg: float):
         """

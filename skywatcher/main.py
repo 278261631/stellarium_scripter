@@ -11,6 +11,7 @@ import argparse
 from synscan import SynScanProtocol
 from stellarium_sync import StellariumSync
 from ui import SkyWatcherUI
+from config import load_config, save_config
 
 
 def setup_logging(level=logging.INFO):
@@ -29,14 +30,20 @@ def setup_logging(level=logging.INFO):
 
 def main():
     """主函数"""
+    # 读取配置，作为命令行默认值
+    cfg = load_config()
+    default_port = cfg.get('serial_port', 'COM5')
+    default_baud = int(cfg.get('baudrate', 9600))
+    default_stel = cfg.get('stellarium_url', 'http://127.0.0.1:8090')
+
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='SkyWatcher设备监控程序')
-    parser.add_argument('--port', type=str, default='COM11',
-                        help='串口名称 (默认: COM11)')
-    parser.add_argument('--baudrate', type=int, default=9600,
-                        help='波特率 (默认: 9600)')
-    parser.add_argument('--stellarium', type=str, default='http://127.0.0.1:8090',
-                        help='Stellarium API地址 (默认: http://127.0.0.1:8090)')
+    parser.add_argument('--port', type=str, default=default_port,
+                        help=f'串口名称 (默认: {default_port})')
+    parser.add_argument('--baudrate', type=int, default=default_baud,
+                        help=f'波特率 (默认: {default_baud})')
+    parser.add_argument('--stellarium', type=str, default=default_stel,
+                        help=f'Stellarium API地址 (默认: {default_stel})')
     parser.add_argument('--debug', action='store_true',
                         help='启用调试日志')
     parser.add_argument('--no-serial', action='store_true',
@@ -47,6 +54,15 @@ def main():
     parser.add_argument('--elev', type=int, default=0, help='海拔(米), 默认0')
 
     args = parser.parse_args()
+
+    # 将当前参数写回配置，便于下次默认沿用（UI中选择端口也会覆盖）
+    try:
+        cfg['serial_port'] = args.port
+        cfg['baudrate'] = int(args.baudrate)
+        cfg['stellarium_url'] = args.stellarium
+        save_config(cfg)
+    except Exception:
+        pass
 
     # 设置日志级别
     log_level = logging.DEBUG if args.debug else logging.INFO
