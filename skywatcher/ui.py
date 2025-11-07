@@ -254,31 +254,41 @@ class SkyWatcherUI:
                    command=lambda: self.quick_goto(0, 90)).grid(row=3, column=5, padx=4, pady=2)
 
 
-        # === Stellarium 选中目标信息 ===
+        # === Stellarium 选中目标信息（靠左 + 自动刷新 + GOTO选中）===
         selected_frame = ttk.LabelFrame(goto_frame, text="Stellarium选中目标", padding="6")
         selected_frame.grid(row=4, column=0, columnspan=6, sticky=(tk.W, tk.E), pady=(8, 0))
-        selected_frame.columnconfigure(1, weight=1)
+        # 全部靠左显示：取消可伸展列
+        selected_frame.columnconfigure(0, weight=0)
+        selected_frame.columnconfigure(1, weight=0)
 
-        ttk.Label(selected_frame, text="名称:").grid(row=0, column=0, sticky=tk.W)
+        # 顶部按钮区（靠左）：自动刷新 / 刷新 / GOTO选中
+        self.sel_auto_refresh_var = tk.BooleanVar(value=True)
+        sel_btns = ttk.Frame(selected_frame)
+        sel_btns.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
+        ttk.Checkbutton(sel_btns, text="自动刷新", variable=self.sel_auto_refresh_var).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(sel_btns, text="刷新", command=self.refresh_selected_object).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(sel_btns, text="GOTO选中", command=self.goto_selected_object).pack(side=tk.LEFT)
+
+        # 名称与坐标信息：两列竖排，全部靠左
+        ttk.Label(selected_frame, text="名称:").grid(row=1, column=0, sticky=tk.W)
         self.sel_name_val = ttk.Label(selected_frame, text="—", anchor=tk.W)
-        self.sel_name_val.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=2)
-        ttk.Button(selected_frame, text="刷新", command=self.refresh_selected_object).grid(row=0, column=3, padx=2, sticky=tk.E)
+        self.sel_name_val.grid(row=1, column=1, sticky=tk.W, padx=2)
 
-        ttk.Label(selected_frame, text="RA(°):").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(selected_frame, text="RA(°):").grid(row=2, column=0, sticky=tk.W)
         self.sel_ra_val = ttk.Label(selected_frame, text="—")
-        self.sel_ra_val.grid(row=1, column=1, sticky=tk.W, padx=2)
+        self.sel_ra_val.grid(row=2, column=1, sticky=tk.W, padx=2)
 
-        ttk.Label(selected_frame, text="DEC(°):").grid(row=1, column=2, sticky=tk.W)
+        ttk.Label(selected_frame, text="DEC(°):").grid(row=3, column=0, sticky=tk.W)
         self.sel_dec_val = ttk.Label(selected_frame, text="—")
-        self.sel_dec_val.grid(row=1, column=3, sticky=tk.W, padx=2)
+        self.sel_dec_val.grid(row=3, column=1, sticky=tk.W, padx=2)
 
-        ttk.Label(selected_frame, text="Az(°):").grid(row=2, column=0, sticky=tk.W)
+        ttk.Label(selected_frame, text="Az(°):").grid(row=4, column=0, sticky=tk.W)
         self.sel_az_val = ttk.Label(selected_frame, text="—")
-        self.sel_az_val.grid(row=2, column=1, sticky=tk.W, padx=2)
+        self.sel_az_val.grid(row=4, column=1, sticky=tk.W, padx=2)
 
-        ttk.Label(selected_frame, text="Alt(°):").grid(row=2, column=2, sticky=tk.W)
+        ttk.Label(selected_frame, text="Alt(°):").grid(row=5, column=0, sticky=tk.W)
         self.sel_alt_val = ttk.Label(selected_frame, text="—")
-        self.sel_alt_val.grid(row=2, column=3, sticky=tk.W, padx=2)
+        self.sel_alt_val.grid(row=5, column=1, sticky=tk.W, padx=2)
 
         # === 手控板区域 (紧凑布局) ===
         handpad_frame = ttk.LabelFrame(main_frame, text="手控板", padding="5")
@@ -451,15 +461,27 @@ class SkyWatcherUI:
         if self.synscan:
             self.root.after(100, self.start_monitoring)  # 延迟100ms启动,确保UI完全初始化
 
+        # 启动“选中目标”自动刷新（延迟，确保日志区已创建）
+        self.root.after(200, self._selected_auto_refresh_tick)
+
     def log(self, message: str):
         """
         添加日志消息
+
 
         Args:
             message: 日志消息
         """
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_msg = f"[{timestamp}] {message}\n"
+
+        # 日志区未创建前，先打印到控制台，避免初始化阶段出错
+        if not hasattr(self, 'log_text'):
+            try:
+                print(log_msg, end='')
+            except Exception:
+                pass
+            return
 
         self.log_text.insert(tk.END, log_msg)
         self.log_text.see(tk.END)  # 自动滚动到底部
@@ -697,14 +719,16 @@ class SkyWatcherUI:
             self.log("✗ 坐标格式错误,请输入数字")
 
 
-    def refresh_selected_object(self):
+    def refresh_selected_object(self, silent=False):
         """刷新Stellarium中当前选中目标信息并显示在UI"""
         if not self.stellarium_sync:
-            self.log("✗ Stellarium未连接")
+            if not silent:
+                self.log("✗ Stellarium未连接")
             return
         info = self.stellarium_sync.get_selected_object_info()
         if not info:
-            self.log("✗ 无法获取选中目标信息")
+            if not silent:
+                self.log("✗ 无法获取选中目标信息")
             return
 
         def _fmt(v):
@@ -713,6 +737,9 @@ class SkyWatcherUI:
             except Exception:
                 return "—"
 
+        # 记住最新一次的查询结果，供“GOTO选中”使用
+        self.sel_last_info = info
+
         name = info.get("name") or "—"
         self.sel_name_val.config(text=name)
         self.sel_ra_val.config(text=_fmt(info.get("ra")))
@@ -720,6 +747,48 @@ class SkyWatcherUI:
         self.sel_az_val.config(text=_fmt(info.get("azimuth")))
         self.sel_alt_val.config(text=_fmt(info.get("altitude")))
         self.log(f"✓ 选中: {name}")
+
+    def _selected_auto_refresh_tick(self):
+        """根据勾选状态定时刷新选中目标信息"""
+        try:
+            if getattr(self, 'sel_auto_refresh_var', None) and self.sel_auto_refresh_var.get():
+                self.refresh_selected_object(silent=True)
+        finally:
+            # 1.5秒轮询一次
+            self._selected_auto_refresh_after = self.root.after(1500, self._selected_auto_refresh_tick)
+
+    def goto_selected_object(self):
+        """对 Stellarium 的当前选中目标执行 GOTO（使用 RA/DEC）"""
+        if not self.synscan:
+            self.log("✗ 设备未连接")
+            return
+        if not self.stellarium_sync:
+            self.log("✗ Stellarium未连接")
+            return
+
+        info = getattr(self, 'sel_last_info', None)
+        if not info:
+            info = self.stellarium_sync.get_selected_object_info()
+        if not info:
+            self.log("✗ 无选中目标或获取失败")
+            return
+
+        try:
+            ra_deg = float(info.get('ra'))
+            dec_deg = float(info.get('dec'))
+        except Exception:
+            self.log("✗ 选中目标坐标无效")
+            return
+
+        name = info.get('name') or ''
+        self.log(f"GOTO 选中: {name} RA={ra_deg}° DEC={dec_deg}°")
+        if self.synscan.goto_ra_dec(ra_deg, dec_deg):
+            self.log("✓ GOTO命令已发送")
+            if self.stellarium_sync:
+                self.stellarium_sync.next_color()
+                self.log(f"🎨 切换颜色: {self.stellarium_sync.COLORS[self.stellarium_sync.color_index]}")
+        else:
+            self.log("✗ GOTO命令失败")
 
     def quick_goto(self, az_deg: float, alt_deg: float):
         """

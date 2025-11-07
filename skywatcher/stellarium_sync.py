@@ -18,7 +18,7 @@ class StellariumSync:
     COLORS = [
         "#FF0000",  # 红色
         "#00FF00",  # 绿色
-        "#0000FF",  # 蓝色
+        "#00AAFF",  # 蓝色
         "#FFFF00",  # 黄色
         "#FF00FF",  # 品红
         "#00FFFF",  # 青色
@@ -324,7 +324,8 @@ try { if (MarkerMgr && MarkerMgr.deleteByType) {
             params = {"format": "json"}
             response = requests.get(url, params=params, timeout=2)
             if response.status_code != 200:
-                self.logger.error(f"获取选中目标信息失败: {response.status_code}")
+                # 一些版本可能不支持该端点，避免刷屏，仅调试日志
+                self.logger.debug(f"获取选中目标信息失败: {response.status_code}")
                 return None
 
             # 尝试解析JSON（有些版本Content-Type可能不规范，双重尝试）
