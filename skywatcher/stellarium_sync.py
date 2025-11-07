@@ -49,11 +49,11 @@ class StellariumSync:
         # GOTO轨迹计数和颜色索引
         self.goto_count = 0
         self.color_index = 0
-        
+
     def test_connection(self) -> bool:
         """
         测试与Stellarium的连接
-        
+
         Returns:
             bool: 连接是否成功
         """
@@ -68,15 +68,15 @@ class StellariumSync:
         except Exception as e:
             self.logger.error(f"无法连接到Stellarium: {e}")
             return False
-    
+
     def ra_dec_to_hms_dms(self, ra_deg: float, dec_deg: float) -> tuple:
         """
         将RA/DEC度数转换为时分秒和度分秒格式
-        
+
         Args:
             ra_deg: 赤经(度, 0-360)
             dec_deg: 赤纬(度, -90到+90)
-            
+
         Returns:
             (ra_str, dec_str): 格式化的字符串
         """
@@ -86,7 +86,7 @@ class StellariumSync:
         ra_m = int((ra_hours - ra_h) * 60)
         ra_s = int(((ra_hours - ra_h) * 60 - ra_m) * 60)
         ra_str = f"{ra_h:02d}h{ra_m:02d}m{ra_s:02d}s"
-        
+
         # DEC: 度分秒
         dec_sign = '+' if dec_deg >= 0 else '-'
         dec_abs = abs(dec_deg)
@@ -94,7 +94,7 @@ class StellariumSync:
         dec_m = int((dec_abs - dec_d) * 60)
         dec_s = int(((dec_abs - dec_d) * 60 - dec_m) * 60)
         dec_str = f"{dec_sign}{dec_d:02d}d{dec_m:02d}m{dec_s:02d}s"
-        
+
         return (ra_str, dec_str)
 
     def next_color(self):
@@ -104,11 +104,11 @@ class StellariumSync:
     def update_telescope_position(self, ra_deg: float, dec_deg: float) -> bool:
         """
         更新Stellarium中的望远镜位置
-        
+
         Args:
             ra_deg: 赤经(度)
             dec_deg: 赤纬(度)
-            
+
         Returns:
             bool: 更新是否成功
         """
@@ -143,24 +143,24 @@ MarkerMgr.markerEquatorial("{ra_str}", "{dec_str}", true, true, "dotted", "{colo
             else:
                 self.logger.error(f"更新位置失败: {response.status_code}")
                 return False
-                
+
         except Exception as e:
             self.logger.error(f"更新位置异常: {e}")
             return False
-    
+
     def point_to_position(self, ra_deg: float, dec_deg: float) -> bool:
         """
         将Stellarium视角指向指定位置
-        
+
         Args:
             ra_deg: 赤经(度)
             dec_deg: 赤纬(度)
-            
+
         Returns:
             bool: 操作是否成功
         """
         ra_str, dec_str = self.ra_dec_to_hms_dms(ra_deg, dec_deg)
-        
+
         script = f'''
 // 将视角指向指定位置
 core.setObserverLocation(0, 0, 0, 0, "", "");
@@ -173,7 +173,7 @@ var dec = {dec_deg};
 // 注意: 这里需要使用Stellarium的内部函数
 // 简化版本: 只更新标记位置
 '''
-        
+
         try:
             self.logger.info("执行Stellarium脚本(指向位置):\n%s", script)
             response = requests.post(
@@ -185,7 +185,7 @@ var dec = {dec_deg};
         except Exception as e:
             self.logger.error(f"指向位置失败: {e}")
             return False
-    
+
     def clear_telescope_marker(self) -> bool:
         """
         清除望远镜标记
@@ -309,3 +309,46 @@ try { if (MarkerMgr && MarkerMgr.deleteByType) {
             self.logger.error(f"清除绘制异常: {e}")
             return False
 
+
+
+    def get_selected_object_info(self) -> Optional[dict]:
+        """
+        获取Stellarium中当前“已选中”目标的信息（名称、RA、DEC、Az、Alt等）。
+
+        返回:
+            dict | None: 若成功返回包含关键信息的字典，否则返回None。
+        """
+        try:
+            # 直接使用 RemoteControl 的对象信息接口：若不传 name，则返回当前“选中对象”的信息
+            url = f"{self.api_url}/objects/info"
+            params = {"format": "json"}
+            response = requests.get(url, params=params, timeout=2)
+            if response.status_code != 200:
+                self.logger.error(f"获取选中目标信息失败: {response.status_code}")
+                return None
+
+            # 尝试解析JSON（有些版本Content-Type可能不规范，双重尝试）
+            try:
+                data = response.json()
+            except Exception:
+                self.logger.error("响应不是JSON，无法解析选中目标信息")
+                return None
+
+            # 规范化为我们需要的字段集
+            info = {
+                "name": data.get("localized-name") or data.get("name") or "",
+                "ra": data.get("ra"),             # 当前历元的赤经(度)
+                "dec": data.get("dec"),           # 当前历元的赤纬(度)
+                "raJ2000": data.get("raJ2000"),
+                "decJ2000": data.get("decJ2000"),
+                "azimuth": data.get("azimuth"),   # 方位角(度)
+                "altitude": data.get("altitude"), # 高度角(度)
+                "iauConstellation": data.get("iauConstellation"),
+                "vmag": data.get("vmag"),
+                "aboveHorizon": bool(data.get("above-horizon")) if "above-horizon" in data else None,
+            }
+            self.logger.debug(f"选中目标信息: {info}")
+            return info
+        except Exception as e:
+            self.logger.error(f"获取选中目标信息异常: {e}")
+            return None
