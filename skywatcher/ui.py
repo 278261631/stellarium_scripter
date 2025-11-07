@@ -142,52 +142,53 @@ class SkyWatcherUI:
         self.dec_deg_label.grid(row=1, column=3, sticky=tk.W, padx=10)
 
         # === GOTO控制区域 ===
-        goto_frame = ttk.LabelFrame(main_frame, text="GOTO控制", padding="10")
+        goto_frame = ttk.LabelFrame(main_frame, text="GOTO控制", padding="6")
         goto_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=5)
 
         # 第一行：RA/DEC(度) + GOTO按钮
         ttk.Label(goto_frame, text="RA (度):").grid(row=0, column=0, sticky=tk.W)
         self.goto_ra_var = tk.StringVar(value="0.0")
-        self.goto_ra_entry = ttk.Entry(goto_frame, width=10, textvariable=self.goto_ra_var)
-        self.goto_ra_entry.grid(row=0, column=1, padx=5, pady=2)
+        self.goto_ra_entry = ttk.Entry(goto_frame, width=8, textvariable=self.goto_ra_var)
+        self.goto_ra_entry.grid(row=0, column=1, padx=2, pady=2)
 
         ttk.Label(goto_frame, text="DEC (度):").grid(row=0, column=2, sticky=tk.W)
         self.goto_dec_var = tk.StringVar(value="0.0")
-        self.goto_dec_entry = ttk.Entry(goto_frame, width=10, textvariable=self.goto_dec_var)
-        self.goto_dec_entry.grid(row=0, column=3, padx=5, pady=2)
+        self.goto_dec_entry = ttk.Entry(goto_frame, width=8, textvariable=self.goto_dec_var)
+        self.goto_dec_entry.grid(row=0, column=3, padx=2, pady=2)
 
-        ttk.Button(goto_frame, text="GOTO (X1)", command=self.goto_radec).grid(row=0, column=4, padx=5, pady=2)
-        ttk.Button(goto_frame, text="GOTO (Slew)", command=self.goto_slew, style='Accent.TButton').grid(row=0, column=5, padx=5, pady=2)
+        ttk.Button(goto_frame, text="GOTO (X1)", command=self.goto_radec).grid(row=0, column=4, padx=2, pady=2)
+        ttk.Button(goto_frame, text="GOTO (Slew)", command=self.goto_slew, style='Accent.TButton').grid(row=0, column=5, padx=2, pady=2)
 
         # 第二行：RA 时分秒 + DEC(度,联动)
-        ttk.Label(goto_frame, text="RA (时分秒):").grid(row=1, column=0, sticky=tk.W, pady=(6, 0))
+        ttk.Label(goto_frame, text="RA(h:m:s):").grid(row=1, column=0, sticky=tk.W, pady=(6, 0))
         self.goto_ra_h_var = tk.StringVar(value="0")
         self.goto_ra_m_var = tk.StringVar(value="0")
         self.goto_ra_s_var = tk.StringVar(value="0")
-        ttk.Entry(goto_frame, width=3, textvariable=self.goto_ra_h_var).grid(row=1, column=1, sticky=tk.W)
-        ttk.Label(goto_frame, text="h").grid(row=1, column=2, sticky=tk.W)
-        ttk.Entry(goto_frame, width=3, textvariable=self.goto_ra_m_var).grid(row=1, column=3, sticky=tk.W)
-        ttk.Label(goto_frame, text="m").grid(row=1, column=4, sticky=tk.W)
-        ttk.Entry(goto_frame, width=5, textvariable=self.goto_ra_s_var).grid(row=1, column=5, sticky=tk.W)
-        ttk.Label(goto_frame, text="s").grid(row=1, column=6, sticky=tk.W)
+        ra_hms_frame = ttk.Frame(goto_frame)
+        ra_hms_frame.grid(row=1, column=1, sticky=tk.W)
+        ttk.Entry(ra_hms_frame, width=2, textvariable=self.goto_ra_h_var).pack(side=tk.LEFT)
+        ttk.Label(ra_hms_frame, text=":").pack(side=tk.LEFT, padx=(1, 1))
+        ttk.Entry(ra_hms_frame, width=2, textvariable=self.goto_ra_m_var).pack(side=tk.LEFT)
+        ttk.Label(ra_hms_frame, text=":").pack(side=tk.LEFT, padx=(1, 1))
+        ttk.Entry(ra_hms_frame, width=4, textvariable=self.goto_ra_s_var).pack(side=tk.LEFT)
 
-        ttk.Label(goto_frame, text="DEC (度, 联动):").grid(row=1, column=7, sticky=tk.W, padx=(10, 0))
+        ttk.Label(goto_frame, text="DEC(°):").grid(row=1, column=2, sticky=tk.W)
         self.goto_dec2_var = tk.StringVar(value="0.0")
-        self.goto_dec2_entry = ttk.Entry(goto_frame, width=10, textvariable=self.goto_dec2_var)
-        self.goto_dec2_entry.grid(row=1, column=8, padx=5)
+        self.goto_dec2_entry = ttk.Entry(goto_frame, width=8, textvariable=self.goto_dec2_var)
+        self.goto_dec2_entry.grid(row=1, column=3, padx=2)
 
         # 第三行：地平坐标与按钮
         ttk.Label(goto_frame, text="方位角:").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
-        self.goto_az_entry = ttk.Entry(goto_frame, width=8)
-        self.goto_az_entry.grid(row=2, column=1, padx=5)
+        self.goto_az_entry = ttk.Entry(goto_frame, width=6)
+        self.goto_az_entry.grid(row=2, column=1, padx=2)
         self.goto_az_entry.insert(0, "0")
 
         ttk.Label(goto_frame, text="高度角:").grid(row=2, column=2, sticky=tk.W)
-        self.goto_alt_entry = ttk.Entry(goto_frame, width=8)
-        self.goto_alt_entry.grid(row=2, column=3, padx=5)
+        self.goto_alt_entry = ttk.Entry(goto_frame, width=6)
+        self.goto_alt_entry.grid(row=2, column=3, padx=2)
         self.goto_alt_entry.insert(0, "30")
 
-        ttk.Button(goto_frame, text="GOTO (Az/Alt)", command=self.goto_altaz).grid(row=2, column=4, padx=5)
+        ttk.Button(goto_frame, text="GOTO (Az/Alt)", command=self.goto_altaz).grid(row=2, column=4, padx=2)
 
         # 绑定联动逻辑
         self._suppress_ra_sync = False
@@ -206,26 +207,26 @@ class SkyWatcherUI:
         quick_frame = ttk.Frame(goto_frame)
         quick_frame.grid(row=3, column=0, columnspan=6, pady=(8, 0), sticky=tk.W)
 
-        ttk.Label(quick_frame, text="快速定位:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+        ttk.Label(quick_frame, text="快速定位:").grid(row=0, column=0, sticky=tk.W, padx=(0, 6))
 
         ttk.Button(quick_frame, text="北方 (Az=0° Alt=10°)",
-                   command=lambda: self.quick_goto(0, 10)).grid(row=0, column=1, padx=5)
+                   command=lambda: self.quick_goto(0, 10)).grid(row=0, column=1, padx=2)
 
         ttk.Button(quick_frame, text="西方 (Az=260° Alt=30°)",
-                   command=lambda: self.quick_goto(260, 30)).grid(row=0, column=2, padx=5)
+                   command=lambda: self.quick_goto(260, 30)).grid(row=0, column=2, padx=2)
 
         ttk.Button(quick_frame, text="西北 (Az=290° Alt=60°)",
-                   command=lambda: self.quick_goto(290, 60)).grid(row=0, column=3, padx=5)
+                   command=lambda: self.quick_goto(290, 60)).grid(row=0, column=3, padx=2)
 
         # 清除Stellarium绘制按钮
         ttk.Button(quick_frame, text="🗑️ 清除Stellarium绘制",
-                   command=self.clear_stellarium_drawings).grid(row=0, column=4, padx=15)
+                   command=self.clear_stellarium_drawings).grid(row=0, column=4, padx=6)
 
         # 扩展：均匀12点 + 30°高度四向 + 天顶
         # 均匀12点的高度角（可调），默认45°
         self.quick_uniform_alt_var = tk.StringVar(value="45")
-        ttk.Label(quick_frame, text="均匀12点 Alt(°):").grid(row=1, column=0, sticky=tk.W, padx=(0, 6))
-        ttk.Entry(quick_frame, width=4, textvariable=self.quick_uniform_alt_var).grid(row=1, column=1, padx=(0, 10))
+        ttk.Label(quick_frame, text="均匀12点 Alt(°):").grid(row=1, column=0, sticky=tk.W, padx=(0, 4))
+        ttk.Entry(quick_frame, width=4, textvariable=self.quick_uniform_alt_var).grid(row=1, column=1, padx=(0, 6))
 
         # 第一行 0°~150°
         angles1 = [0, 30, 60, 90, 120, 150]
@@ -240,7 +241,7 @@ class SkyWatcherUI:
                        command=lambda a=az: self.quick_uniform_goto(a)).grid(row=2, column=2 + i, padx=2, pady=2)
 
         # 30°高度四向 + 天顶
-        ttk.Label(quick_frame, text="30°高度与天顶:").grid(row=3, column=0, sticky=tk.W, padx=(0, 6))
+        ttk.Label(quick_frame, text="30°高度与天顶:").grid(row=3, column=0, sticky=tk.W, padx=(0, 4))
         ttk.Button(quick_frame, text="北(0/30)", width=8,
                    command=lambda: self.quick_goto(0, 30)).grid(row=3, column=1, padx=2, pady=2)
         ttk.Button(quick_frame, text="东(90/30)", width=8,
@@ -250,7 +251,7 @@ class SkyWatcherUI:
         ttk.Button(quick_frame, text="西(270/30)", width=9,
                    command=lambda: self.quick_goto(270, 30)).grid(row=3, column=4, padx=2, pady=2)
         ttk.Button(quick_frame, text="天顶", width=6,
-                   command=lambda: self.quick_goto(0, 90)).grid(row=3, column=5, padx=6, pady=2)
+                   command=lambda: self.quick_goto(0, 90)).grid(row=3, column=5, padx=4, pady=2)
 
         # === 手控板区域 (紧凑布局) ===
         handpad_frame = ttk.LabelFrame(main_frame, text="手控板", padding="5")
