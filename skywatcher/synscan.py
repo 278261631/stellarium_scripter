@@ -600,10 +600,10 @@ class SynScanProtocol:
 
     def goto_ra_dec(self, ra_deg: float, dec_deg: float) -> bool:
         """
-        GOTO到指定的RA/DEC位置（使用 :X1 指令，单位：度）
+        GOTO到指定的RA/DEC位置（使用 :X1 指令，RA=小时小数, DEC=度小数）
 
-        格式（假定固件协议）: :X1{RA_deg},{DEC_deg}\r
-        例如：:X113.012345,-27.465876\r
+        格式（固件协议）: :X1{RA_hours},{DEC_deg}\r
+        例如：:X11.033333,26.000000\r  # 1.033333h 对应 RA=15.5°
 
         Args:
             ra_deg: 赤经(度) 0-360
@@ -617,8 +617,9 @@ class SynScanProtocol:
             self.logger.error(f"✗ 无效坐标: RA={ra_deg}, DEC={dec_deg}")
             return False
         ra_deg = self.range360(ra_deg)
+        ra_hours = ra_deg / 15.0
 
-        self.logger.info(f"GOTO(X1): RA={ra_deg:.4f}°, DEC={dec_deg:.4f}°")
+        self.logger.info(f"GOTO(X1): RA={ra_deg:.4f}° ({ra_hours:.4f}h), DEC={dec_deg:.4f}°")
 
         try:
             # 1) 可选：进入GOTO模式
@@ -630,8 +631,8 @@ class SynScanProtocol:
             else:
                 self.logger.warning("⚠ 设备未连接,跳过G200指令")
 
-            # 2) 发送 X1 指令（RA/DEC 为度值，小数可保留6位）
-            data = f"{ra_deg:.6f},{dec_deg:.6f}"
+            # 2) 发送 X1 指令（RA=小时小数, DEC=度；均保留6位小数）
+            data = f"{ra_hours:.6f},{dec_deg:.6f}"
             resp = self.send_command(self.AXIS_RA, 'X', data)
             self.logger.debug(f"X1响应: {repr(resp)}")
 

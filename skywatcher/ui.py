@@ -121,16 +121,16 @@ class SkyWatcherUI:
         goto_frame = ttk.LabelFrame(main_frame, text="GOTO控制", padding="10")
         goto_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=5)
 
-        # GOTO坐标输入
+        # GOTO坐标输入 (度)
         ttk.Label(goto_frame, text="RA (度):").grid(row=0, column=0, sticky=tk.W)
-        self.goto_ra_entry = ttk.Entry(goto_frame, width=12)
+        self.goto_ra_var = tk.StringVar(value="0.0")
+        self.goto_ra_entry = ttk.Entry(goto_frame, width=12, textvariable=self.goto_ra_var)
         self.goto_ra_entry.grid(row=0, column=1, padx=5)
-        self.goto_ra_entry.insert(0, "0.0")
 
         ttk.Label(goto_frame, text="DEC (度):").grid(row=0, column=2, sticky=tk.W, padx=(20, 0))
-        self.goto_dec_entry = ttk.Entry(goto_frame, width=12)
+        self.goto_dec_var = tk.StringVar(value="0.0")
+        self.goto_dec_entry = ttk.Entry(goto_frame, width=12, textvariable=self.goto_dec_var)
         self.goto_dec_entry.grid(row=0, column=3, padx=5)
-        self.goto_dec_entry.insert(0, "0.0")
 
         # GOTO按钮
         ttk.Button(goto_frame, text="GOTO (X1)", command=self.goto_radec).grid(row=0, column=4, padx=5)
@@ -155,6 +155,36 @@ class SkyWatcherUI:
 
         # GOTO地平坐标按钮
         ttk.Button(goto_frame, text="GOTO (Az/Alt)", command=self.goto_altaz).grid(row=0, column=11, padx=10)
+
+        # —— 额外联动输入：RA(时分秒) + DEC(度) ——
+        ttk.Label(goto_frame, text="RA (时分秒):").grid(row=2, column=0, sticky=tk.W, pady=(8, 0))
+        self.goto_ra_h_var = tk.StringVar(value="0")
+        self.goto_ra_m_var = tk.StringVar(value="0")
+        self.goto_ra_s_var = tk.StringVar(value="0")
+        ttk.Entry(goto_frame, width=4, textvariable=self.goto_ra_h_var).grid(row=2, column=1, sticky=tk.W)
+        ttk.Label(goto_frame, text="h").grid(row=2, column=2, sticky=tk.W)
+        ttk.Entry(goto_frame, width=4, textvariable=self.goto_ra_m_var).grid(row=2, column=3, sticky=tk.W)
+        ttk.Label(goto_frame, text="m").grid(row=2, column=4, sticky=tk.W)
+        ttk.Entry(goto_frame, width=6, textvariable=self.goto_ra_s_var).grid(row=2, column=5, sticky=tk.W)
+        ttk.Label(goto_frame, text="s").grid(row=2, column=6, sticky=tk.W)
+
+        ttk.Label(goto_frame, text="DEC (度, 联动):").grid(row=2, column=7, sticky=tk.W, padx=(20, 0))
+        self.goto_dec2_var = tk.StringVar(value="0.0")
+        self.goto_dec2_entry = ttk.Entry(goto_frame, width=12, textvariable=self.goto_dec2_var)
+        self.goto_dec2_entry.grid(row=2, column=8, padx=5)
+
+        # 绑定联动逻辑
+        self._suppress_ra_sync = False
+        self._suppress_dec_sync = False
+        # RA 度 -> RA 时分秒
+        self.goto_ra_var.trace_add("write", lambda *args: self._on_ra_deg_changed())
+        # RA 时分秒 -> RA 度
+        self.goto_ra_h_var.trace_add("write", lambda *args: self._on_ra_hms_changed())
+        self.goto_ra_m_var.trace_add("write", lambda *args: self._on_ra_hms_changed())
+        self.goto_ra_s_var.trace_add("write", lambda *args: self._on_ra_hms_changed())
+        # DEC 镜像联动
+        self.goto_dec_var.trace_add("write", lambda *args: self._on_dec1_changed())
+        self.goto_dec2_var.trace_add("write", lambda *args: self._on_dec2_changed())
 
         # 快速定位按钮
         quick_frame = ttk.Frame(goto_frame)
@@ -778,6 +808,84 @@ class SkyWatcherUI:
             self.log(f"✓ RA轴速度已设置为 {speed}")
         else:
             self.log("✗ 设置RA轴速度失败")
+
+    # —— 联动回调：RA 度/时分秒 与 DEC 双输入 ——
+    def _on_ra_deg_changed(self):
+        if getattr(self, '_suppress_ra_sync', False):
+            return
+        try:
+            ra_deg = float(self.goto_ra_var.get())
+            ra_deg = ra_deg % 360.0
+            ra_hours = ra_deg / 15.0
+            h = int(ra_hours)
+            m_float = (ra_hours - h) * 60.0
+            m = int(m_float)
+            s = int(round((m_float - m) * 60.0))
+            # 进位规范
+            if s >= 60:
+                s = 0
+                m += 1
+            if m >= 60:
+                m = 0
+                h = (h + 1) % 24
+            self._suppress_ra_sync = True
+            self.goto_ra_h_var.set(str(h))
+            self.goto_ra_m_var.set(str(m))
+            self.goto_ra_s_var.set(str(s))
+            self._suppress_ra_sync = False
+        except Exception:
+            # 忽略非法输入
+            pass
+
+    def _on_ra_hms_changed(self):
+        if getattr(self, '_suppress_ra_sync', False):
+            return
+        try:
+            h = int(self.goto_ra_h_var.get() or 0)
+            m = int(self.goto_ra_m_var.get() or 0)
+            s = float(self.goto_ra_s_var.get() or 0)
+            # 规范范围
+            if m < 0:
+                m = 0
+            if s < 0:
+                s = 0.0
+            if s >= 60.0:
+                m += int(s // 60.0)
+                s = s % 60.0
+            if m >= 60:
+                h += m // 60
+                m = m % 60
+            h = h % 24
+            ra_hours = h + m / 60.0 + s / 3600.0
+            ra_deg = (ra_hours * 15.0) % 360.0
+            self._suppress_ra_sync = True
+            self.goto_ra_var.set(f"{ra_deg:.6f}")
+            self._suppress_ra_sync = False
+        except Exception:
+            pass
+
+    def _on_dec1_changed(self):
+        if getattr(self, '_suppress_dec_sync', False):
+            return
+        try:
+            v = float(self.goto_dec_var.get())
+            self._suppress_dec_sync = True
+            self.goto_dec2_var.set(f"{v:.6f}")
+            self._suppress_dec_sync = False
+        except Exception:
+            pass
+
+    def _on_dec2_changed(self):
+        if getattr(self, '_suppress_dec_sync', False):
+            return
+        try:
+            v = float(self.goto_dec2_var.get())
+            self._suppress_dec_sync = True
+            self.goto_dec_var.set(f"{v:.6f}")
+            self._suppress_dec_sync = False
+        except Exception:
+            pass
+
 
     def set_dec_speed(self):
         """设置DEC轴速度"""
