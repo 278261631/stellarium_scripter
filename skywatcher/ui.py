@@ -60,6 +60,8 @@ class SkyWatcherUI:
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(4, weight=1)
+        main_frame.rowconfigure(7, weight=1)  # 让日志区域可扩展
+
 
         # === 连接状态区域 ===
         status_frame = ttk.LabelFrame(main_frame, text="连接状态", padding="10")
@@ -121,57 +123,49 @@ class SkyWatcherUI:
         goto_frame = ttk.LabelFrame(main_frame, text="GOTO控制", padding="10")
         goto_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=5)
 
-        # GOTO坐标输入 (度)
+        # 第一行：RA/DEC(度) + GOTO按钮
         ttk.Label(goto_frame, text="RA (度):").grid(row=0, column=0, sticky=tk.W)
         self.goto_ra_var = tk.StringVar(value="0.0")
-        self.goto_ra_entry = ttk.Entry(goto_frame, width=12, textvariable=self.goto_ra_var)
-        self.goto_ra_entry.grid(row=0, column=1, padx=5)
+        self.goto_ra_entry = ttk.Entry(goto_frame, width=10, textvariable=self.goto_ra_var)
+        self.goto_ra_entry.grid(row=0, column=1, padx=5, pady=2)
 
-        ttk.Label(goto_frame, text="DEC (度):").grid(row=0, column=2, sticky=tk.W, padx=(20, 0))
+        ttk.Label(goto_frame, text="DEC (度):").grid(row=0, column=2, sticky=tk.W)
         self.goto_dec_var = tk.StringVar(value="0.0")
-        self.goto_dec_entry = ttk.Entry(goto_frame, width=12, textvariable=self.goto_dec_var)
-        self.goto_dec_entry.grid(row=0, column=3, padx=5)
+        self.goto_dec_entry = ttk.Entry(goto_frame, width=10, textvariable=self.goto_dec_var)
+        self.goto_dec_entry.grid(row=0, column=3, padx=5, pady=2)
 
-        # GOTO按钮
-        ttk.Button(goto_frame, text="GOTO (X1)", command=self.goto_radec).grid(row=0, column=4, padx=5)
+        ttk.Button(goto_frame, text="GOTO (X1)", command=self.goto_radec).grid(row=0, column=4, padx=5, pady=2)
+        ttk.Button(goto_frame, text="GOTO (Slew)", command=self.goto_slew, style='Accent.TButton').grid(row=0, column=5, padx=5, pady=2)
 
-        # 新的GOTO按钮 (使用SlewToCoordinates方法)
-        ttk.Button(goto_frame, text="GOTO (Slew)", command=self.goto_slew,
-                   style='Accent.TButton').grid(row=0, column=5, padx=5)
-
-        # 分隔线
-        ttk.Separator(goto_frame, orient='vertical').grid(row=0, column=6, sticky=(tk.N, tk.S), padx=10)
-
-        # 地平坐标输入
-        ttk.Label(goto_frame, text="方位角:").grid(row=0, column=7, sticky=tk.W)
-        self.goto_az_entry = ttk.Entry(goto_frame, width=10)
-        self.goto_az_entry.grid(row=0, column=8, padx=5)
-        self.goto_az_entry.insert(0, "0")
-
-        ttk.Label(goto_frame, text="高度角:").grid(row=0, column=9, sticky=tk.W, padx=(10, 0))
-        self.goto_alt_entry = ttk.Entry(goto_frame, width=10)
-        self.goto_alt_entry.grid(row=0, column=10, padx=5)
-        self.goto_alt_entry.insert(0, "30")
-
-        # GOTO地平坐标按钮
-        ttk.Button(goto_frame, text="GOTO (Az/Alt)", command=self.goto_altaz).grid(row=0, column=11, padx=10)
-
-        # —— 额外联动输入：RA(时分秒) + DEC(度) ——
-        ttk.Label(goto_frame, text="RA (时分秒):").grid(row=2, column=0, sticky=tk.W, pady=(8, 0))
+        # 第二行：RA 时分秒 + DEC(度,联动)
+        ttk.Label(goto_frame, text="RA (时分秒):").grid(row=1, column=0, sticky=tk.W, pady=(6, 0))
         self.goto_ra_h_var = tk.StringVar(value="0")
         self.goto_ra_m_var = tk.StringVar(value="0")
         self.goto_ra_s_var = tk.StringVar(value="0")
-        ttk.Entry(goto_frame, width=4, textvariable=self.goto_ra_h_var).grid(row=2, column=1, sticky=tk.W)
-        ttk.Label(goto_frame, text="h").grid(row=2, column=2, sticky=tk.W)
-        ttk.Entry(goto_frame, width=4, textvariable=self.goto_ra_m_var).grid(row=2, column=3, sticky=tk.W)
-        ttk.Label(goto_frame, text="m").grid(row=2, column=4, sticky=tk.W)
-        ttk.Entry(goto_frame, width=6, textvariable=self.goto_ra_s_var).grid(row=2, column=5, sticky=tk.W)
-        ttk.Label(goto_frame, text="s").grid(row=2, column=6, sticky=tk.W)
+        ttk.Entry(goto_frame, width=3, textvariable=self.goto_ra_h_var).grid(row=1, column=1, sticky=tk.W)
+        ttk.Label(goto_frame, text="h").grid(row=1, column=2, sticky=tk.W)
+        ttk.Entry(goto_frame, width=3, textvariable=self.goto_ra_m_var).grid(row=1, column=3, sticky=tk.W)
+        ttk.Label(goto_frame, text="m").grid(row=1, column=4, sticky=tk.W)
+        ttk.Entry(goto_frame, width=5, textvariable=self.goto_ra_s_var).grid(row=1, column=5, sticky=tk.W)
+        ttk.Label(goto_frame, text="s").grid(row=1, column=6, sticky=tk.W)
 
-        ttk.Label(goto_frame, text="DEC (度, 联动):").grid(row=2, column=7, sticky=tk.W, padx=(20, 0))
+        ttk.Label(goto_frame, text="DEC (度, 联动):").grid(row=1, column=7, sticky=tk.W, padx=(10, 0))
         self.goto_dec2_var = tk.StringVar(value="0.0")
-        self.goto_dec2_entry = ttk.Entry(goto_frame, width=12, textvariable=self.goto_dec2_var)
-        self.goto_dec2_entry.grid(row=2, column=8, padx=5)
+        self.goto_dec2_entry = ttk.Entry(goto_frame, width=10, textvariable=self.goto_dec2_var)
+        self.goto_dec2_entry.grid(row=1, column=8, padx=5)
+
+        # 第三行：地平坐标与按钮
+        ttk.Label(goto_frame, text="方位角:").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
+        self.goto_az_entry = ttk.Entry(goto_frame, width=8)
+        self.goto_az_entry.grid(row=2, column=1, padx=5)
+        self.goto_az_entry.insert(0, "0")
+
+        ttk.Label(goto_frame, text="高度角:").grid(row=2, column=2, sticky=tk.W)
+        self.goto_alt_entry = ttk.Entry(goto_frame, width=8)
+        self.goto_alt_entry.grid(row=2, column=3, padx=5)
+        self.goto_alt_entry.insert(0, "30")
+
+        ttk.Button(goto_frame, text="GOTO (Az/Alt)", command=self.goto_altaz).grid(row=2, column=4, padx=5)
 
         # 绑定联动逻辑
         self._suppress_ra_sync = False
@@ -188,7 +182,7 @@ class SkyWatcherUI:
 
         # 快速定位按钮
         quick_frame = ttk.Frame(goto_frame)
-        quick_frame.grid(row=1, column=0, columnspan=12, pady=(10, 0))
+        quick_frame.grid(row=3, column=0, columnspan=6, pady=(8, 0), sticky=tk.W)
 
         ttk.Label(quick_frame, text="快速定位:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
 
@@ -262,12 +256,16 @@ class SkyWatcherUI:
                   command=self.stop_move).grid(row=1, column=0, columnspan=3, pady=5)
 
         # === 速度控制区域 ===
-        speed_control_frame = ttk.LabelFrame(main_frame, text="轴速度控制", padding="10")
-        speed_control_frame.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=5)
+        speed_control_frame = ttk.LabelFrame(main_frame, text="轴速度控制", padding="6")
+        speed_control_frame.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=5)
 
         # RA轴速度控制
         ra_speed_frame = ttk.Frame(speed_control_frame)
         ra_speed_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=5, pady=5)
+        # 轴速控制 显示/隐藏 开关按钮（默认隐藏，点击展开）
+        self.speed_toggle_btn = ttk.Button(main_frame, text="显示轴速控制", command=self.toggle_speed_control)
+        self.speed_toggle_btn.grid(row=5, column=0, sticky=tk.W, padx=10, pady=(2, 2))
+
 
         ttk.Label(ra_speed_frame, text="RA轴速度:", width=12).grid(row=0, column=0, sticky=tk.W)
 
@@ -275,7 +273,7 @@ class SkyWatcherUI:
         self.ra_speed_var = tk.IntVar(value=256)  # 默认慢速
         self.ra_speed_slider = ttk.Scale(ra_speed_frame, from_=0, to=65536,
                                          variable=self.ra_speed_var, orient=tk.HORIZONTAL,
-                                         length=300, command=self.update_ra_speed_display)
+                                         length=200, command=self.update_ra_speed_display)
         self.ra_speed_slider.grid(row=0, column=1, padx=5)
 
         # RA速度显示
@@ -296,7 +294,7 @@ class SkyWatcherUI:
         self.dec_speed_var = tk.IntVar(value=256)  # 默认慢速
         self.dec_speed_slider = ttk.Scale(dec_speed_frame, from_=0, to=65536,
                                           variable=self.dec_speed_var, orient=tk.HORIZONTAL,
-                                          length=300, command=self.update_dec_speed_display)
+                                          length=200, command=self.update_dec_speed_display)
         self.dec_speed_slider.grid(row=0, column=1, padx=5)
 
         # DEC速度显示
@@ -324,9 +322,14 @@ class SkyWatcherUI:
         ttk.Button(preset_frame, text="停止(0)",
                    command=lambda: self.set_preset_speed(0)).grid(row=0, column=5, padx=2)
 
+        # 默认隐藏轴速控制区，避免占据空间
+        self.speed_control_frame = speed_control_frame
+        self.speed_control_visible = False
+        self.speed_control_frame.grid_remove()
+
         # === 日志区域 ===
         log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
-        log_frame.grid(row=6, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        log_frame.grid(row=7, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
@@ -336,7 +339,7 @@ class SkyWatcherUI:
 
         # === 控制按钮区域 ===
         button_frame = ttk.Frame(main_frame, padding="10")
-        button_frame.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=5)
+        button_frame.grid(row=8, column=0, sticky=(tk.W, tk.E), pady=5)
 
         # 开始/停止按钮
         self.start_button = ttk.Button(button_frame, text="开始监控", command=self.start_monitoring)
@@ -915,7 +918,21 @@ class SkyWatcherUI:
 
         self.log(f"速度预设已设置为: {speed}")
 
+    def toggle_speed_control(self):
+        """显示/隐藏 轴速控制区"""
+        if getattr(self, 'speed_control_visible', False):
+            if hasattr(self, 'speed_control_frame'):
+                self.speed_control_frame.grid_remove()
+            self.speed_control_visible = False
+            if hasattr(self, 'speed_toggle_btn'):
+                self.speed_toggle_btn.config(text="显示轴速控制")
+        else:
+            if hasattr(self, 'speed_control_frame'):
+                self.speed_control_frame.grid()
+            self.speed_control_visible = True
+            if hasattr(self, 'speed_toggle_btn'):
+                self.speed_toggle_btn.config(text="隐藏轴速控制")
+
     def run(self):
         """运行UI主循环"""
         self.root.mainloop()
-
