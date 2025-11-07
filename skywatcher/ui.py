@@ -221,6 +221,37 @@ class SkyWatcherUI:
         ttk.Button(quick_frame, text="🗑️ 清除Stellarium绘制",
                    command=self.clear_stellarium_drawings).grid(row=0, column=4, padx=15)
 
+        # 扩展：均匀12点 + 30°高度四向 + 天顶
+        # 均匀12点的高度角（可调），默认45°
+        self.quick_uniform_alt_var = tk.StringVar(value="45")
+        ttk.Label(quick_frame, text="均匀12点 Alt(°):").grid(row=1, column=0, sticky=tk.W, padx=(0, 6))
+        ttk.Entry(quick_frame, width=4, textvariable=self.quick_uniform_alt_var).grid(row=1, column=1, padx=(0, 10))
+
+        # 第一行 0°~150°
+        angles1 = [0, 30, 60, 90, 120, 150]
+        for i, az in enumerate(angles1):
+            ttk.Button(quick_frame, text=f"{az}°", width=5,
+                       command=lambda a=az: self.quick_uniform_goto(a)).grid(row=1, column=2 + i, padx=2, pady=2)
+
+        # 第二行 180°~330°
+        angles2 = [180, 210, 240, 270, 300, 330]
+        for i, az in enumerate(angles2):
+            ttk.Button(quick_frame, text=f"{az}°", width=5,
+                       command=lambda a=az: self.quick_uniform_goto(a)).grid(row=2, column=2 + i, padx=2, pady=2)
+
+        # 30°高度四向 + 天顶
+        ttk.Label(quick_frame, text="30°高度与天顶:").grid(row=3, column=0, sticky=tk.W, padx=(0, 6))
+        ttk.Button(quick_frame, text="北(0/30)", width=8,
+                   command=lambda: self.quick_goto(0, 30)).grid(row=3, column=1, padx=2, pady=2)
+        ttk.Button(quick_frame, text="东(90/30)", width=8,
+                   command=lambda: self.quick_goto(90, 30)).grid(row=3, column=2, padx=2, pady=2)
+        ttk.Button(quick_frame, text="南(180/30)", width=9,
+                   command=lambda: self.quick_goto(180, 30)).grid(row=3, column=3, padx=2, pady=2)
+        ttk.Button(quick_frame, text="西(270/30)", width=9,
+                   command=lambda: self.quick_goto(270, 30)).grid(row=3, column=4, padx=2, pady=2)
+        ttk.Button(quick_frame, text="天顶", width=6,
+                   command=lambda: self.quick_goto(0, 90)).grid(row=3, column=5, padx=6, pady=2)
+
         # === 手控板区域 (紧凑布局) ===
         handpad_frame = ttk.LabelFrame(main_frame, text="手控板", padding="5")
         handpad_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=5)
@@ -625,7 +656,6 @@ class SkyWatcherUI:
                 # 执行GOTO
                 if self.synscan.goto_altaz(az_deg, alt_deg):
                     self.log("✓ GOTO命令已发送")
-
                     # 换颜色
                     if self.stellarium_sync:
                         self.stellarium_sync.next_color()
@@ -680,6 +710,7 @@ class SkyWatcherUI:
         speed = self.speed_var.get().strip()
 
         # 验证速度格式 (6位16进制)
+
         if len(speed) != 6:
             self.log(f"✗ 速度格式错误: 必须是6位16进制数 (当前: {speed})")
             return
@@ -718,6 +749,19 @@ class SkyWatcherUI:
 
         self.log("停止移动")
         self.synscan.stop_all()
+    def quick_uniform_goto(self, az_deg: float):
+        """均匀12点按钮的入口：读取当前高度角设置并执行 quick_goto"""
+        try:
+            alt_deg = float(getattr(self, 'quick_uniform_alt_var', tk.StringVar(value='45')).get())
+        except Exception:
+            alt_deg = 45.0
+        # 约束高度角范围
+        if alt_deg < 0:
+            alt_deg = 0.0
+        if alt_deg > 90:
+            alt_deg = 90.0
+        self.quick_goto(az_deg, alt_deg)
+
 
     def initialize_ra(self):
         """初始化RA轴 (F1命令)"""
