@@ -112,7 +112,7 @@ class SkyWatcherUI:
 
         # GPS位置 (模拟)
         ttk.Label(info_frame, text="GPS位置:").grid(row=0, column=2, sticky=tk.W, padx=20)
-        self.gps_label = ttk.Label(info_frame, text="40.0°N, 120.0°E", font=("Courier", 10))
+        self.gps_label = ttk.Label(info_frame, text="39.9164°N, 116.3830°E", font=("Courier", 10))
         self.gps_label.grid(row=0, column=3, sticky=tk.W, padx=10)
 
         # === 望远镜坐标区域 ===

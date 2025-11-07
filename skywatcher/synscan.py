@@ -35,8 +35,8 @@ class SynScanProtocol:
     # 标准SkyWatcher: 0x1000000 (16777216) 步/圈
 
     # 默认观测地(用于未提供经纬度时下发:Z1)
-    DEFAULT_LAT = 40.0
-    DEFAULT_LON = 120.0
+    DEFAULT_LAT = 39.9164
+    DEFAULT_LON = 116.3830
     DEFAULT_ELEVATION = 0
 
     def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0):
@@ -873,7 +873,7 @@ class SynScanProtocol:
         设置观测位置
 
         使用固件的Z1命令(自定义协议):
-        - :Z1+DD.DDDD,+DDD.DDDD,+DDDD\r 设置纬度、经度、海拔
+        - :Z1+DD.DDDD,+DDD.DDDD,+DDD\r 设置纬度、经度、海拔（注意最后一段为3位，不要发四位0）
 
         Args:
             latitude: 纬度 (-90.0 到 +90.0, 北纬为正)
@@ -891,8 +891,8 @@ class SynScanProtocol:
 
 
         try:
-            # 构建Z1命令
-            cmd = f":Z1{latitude:+.4f},{longitude:+.4f},{elevation:+05d}\r"
+            # 构建Z1命令（最后一段固定3位宽度，例如 0 -> +000）
+            cmd = f":Z1{latitude:+.4f},{longitude:+.4f},{elevation:+03d}\r"
             self.logger.debug(f"发送Z1命令: {repr(cmd)}")
 
             # 清空输入缓冲区
