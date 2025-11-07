@@ -52,15 +52,37 @@ class SkyWatcherUI:
     def create_widgets(self):
         """创建UI组件"""
         # 主框架
-        main_frame = ttk.Frame(self.root, padding="10")
+        # 顶部Notebook，分为“控制”和“日志”两个页面
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        control_tab = ttk.Frame(self.notebook)
+        log_tab = ttk.Frame(self.notebook)
+        self.notebook.add(control_tab, text="控制")
+        self.notebook.add(log_tab, text="日志")
+
+        # 控制页主容器
+        main_frame = ttk.Frame(control_tab, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # 保存以便其他方法可访问日志页容器
+        self._log_tab = log_tab
+        self._control_tab = control_tab
 
         # 配置网格权重
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        # 让Notebook可扩展
+        self.notebook.columnconfigure(0, weight=1)
+        self.notebook.rowconfigure(0, weight=1)
+        # 控制页与日志页自适应
+        self._control_tab.columnconfigure(0, weight=1)
+        self._control_tab.rowconfigure(0, weight=1)
+        self._log_tab.columnconfigure(0, weight=1)
+        self._log_tab.rowconfigure(0, weight=1)
+        # 控制页内主框架
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(4, weight=1)
-        main_frame.rowconfigure(7, weight=1)  # 让日志区域可扩展
+        # 按钮所在行不做扩展，避免占用太多空间
+        main_frame.rowconfigure(7, weight=0)
 
 
         # === 连接状态区域 ===
@@ -327,9 +349,9 @@ class SkyWatcherUI:
         self.speed_control_visible = False
         self.speed_control_frame.grid_remove()
 
-        # === 日志区域 ===
-        log_frame = ttk.LabelFrame(main_frame, text="日志", padding="10")
-        log_frame.grid(row=7, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        # === 日志区域（移至Notebook的“日志”页面）===
+        log_frame = ttk.LabelFrame(self._log_tab, text="日志", padding="10")
+        log_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
@@ -339,7 +361,7 @@ class SkyWatcherUI:
 
         # === 控制按钮区域 ===
         button_frame = ttk.Frame(main_frame, padding="10")
-        button_frame.grid(row=8, column=0, sticky=(tk.W, tk.E), pady=5)
+        button_frame.grid(row=7, column=0, sticky=(tk.W, tk.E), pady=5)
 
         # 开始/停止按钮
         self.start_button = ttk.Button(button_frame, text="开始监控", command=self.start_monitoring)
