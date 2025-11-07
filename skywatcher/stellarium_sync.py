@@ -326,7 +326,22 @@ try { if (MarkerMgr && MarkerMgr.deleteByType) {
             if response.status_code != 200:
                 # 一些版本可能不支持该端点，避免刷屏，仅调试日志
                 self.logger.debug(f"获取选中目标信息失败: {response.status_code}")
+                # 打印原始响应文本（前500字），用于排查
+                try:
+                    txt = response.text
+                    self.logger.debug("对象信息原始响应(前500字): %s", txt[:500].replace("\r", "\\r").replace("\n", "\\n"))
+                except Exception:
+                    pass
                 return None
+
+            # 记录原始响应头与文本（前500字），便于排查异常数据（如RA为负）
+            try:
+                ct = response.headers.get("Content-Type")
+                self.logger.debug(f"对象信息响应: status={response.status_code} Content-Type={ct}")
+                raw_text = response.text
+                self.logger.debug("对象信息原始文本(前500字): %s", raw_text[:500].replace("\r", "\\r").replace("\n", "\\n"))
+            except Exception:
+                pass
 
             # 尝试解析JSON（有些版本Content-Type可能不规范，双重尝试）
             try:
@@ -335,15 +350,41 @@ try { if (MarkerMgr && MarkerMgr.deleteByType) {
                 self.logger.error("响应不是JSON，无法解析选中目标信息")
                 return None
 
-            # 规范化为我们需要的字段集
+            self.logger.debug(f"对象信息原始JSON: {data}")
+
+            # 取原始值
+            ra_raw = data.get("ra")
+            dec_raw = data.get("dec")
+            raJ2000_raw = data.get("raJ2000")
+            decJ2000_raw = data.get("decJ2000")
+            az_raw = data.get("azimuth")
+            alt_raw = data.get("altitude")
+
+            # 规范化工具
+            def _norm_deg360(v):
+                try:
+                    return float(v) % 360.0
+                except Exception:
+                    return v
+
+            ra = _norm_deg360(ra_raw)
+            raJ2000 = _norm_deg360(raJ2000_raw)
+            azimuth = _norm_deg360(az_raw)
+            altitude = alt_raw  # 高度角通常[-90,90]，不处理
+            dec = dec_raw
+            decJ2000 = decJ2000_raw
+
+            self.logger.debug(f"归一化: ra {ra_raw} -> {ra}, raJ2000 {raJ2000_raw} -> {raJ2000}, az {az_raw} -> {azimuth}")
+
+            # 规范化为我们需要的字段集（RA/Az保证在[0,360) 区间）
             info = {
                 "name": data.get("localized-name") or data.get("name") or "",
-                "ra": data.get("ra"),             # 当前历元的赤经(度)
-                "dec": data.get("dec"),           # 当前历元的赤纬(度)
-                "raJ2000": data.get("raJ2000"),
-                "decJ2000": data.get("decJ2000"),
-                "azimuth": data.get("azimuth"),   # 方位角(度)
-                "altitude": data.get("altitude"), # 高度角(度)
+                "ra": ra,             # 当前历元的赤经(度) 0-360
+                "dec": dec,           # 当前历元的赤纬(度)
+                "raJ2000": raJ2000,
+                "decJ2000": decJ2000,
+                "azimuth": azimuth,   # 方位角(度) 0-360
+                "altitude": altitude, # 高度角(度)
                 "iauConstellation": data.get("iauConstellation"),
                 "vmag": data.get("vmag"),
                 "aboveHorizon": bool(data.get("above-horizon")) if "above-horizon" in data else None,

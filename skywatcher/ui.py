@@ -780,6 +780,13 @@ class SkyWatcherUI:
             self.log("✗ 选中目标坐标无效")
             return
 
+        # 同步到GOTO控制区输入框（会触发联动：RA 度→h:m:s，DEC 双输入同步）
+        try:
+            self.goto_ra_var.set(f"{ra_deg:.6f}")
+            self.goto_dec_var.set(f"{dec_deg:.6f}")
+        except Exception:
+            pass
+
         name = info.get('name') or ''
         self.log(f"GOTO 选中: {name} RA={ra_deg}° DEC={dec_deg}°")
         if self.synscan.goto_ra_dec(ra_deg, dec_deg):
