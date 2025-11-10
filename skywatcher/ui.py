@@ -1314,6 +1314,11 @@ class SkyWatcherUI:
         if lat is None:
             self.log("✗ 预设地点不存在")
             return
+        # 记录当前观测地（用于随机目标的地平高度筛选）
+        self.obs_lat, self.obs_lon = lat, lon
+        self.obs_loc_name = name
+
+
         self.log(f"应用地点: {name} (lat={lat:.4f}, lon={lon:.4f})")
         # 设备
         if self.synscan:
@@ -1405,6 +1410,55 @@ class SkyWatcherUI:
         self.random_goto_thread.start()
 
 
+    def _julian_day(self, dt_utc: datetime) -> float:
+        """UTC -> Julian Day (简化版，足够用于恒星时计算)"""
+        y, m = dt_utc.year, dt_utc.month
+        d = dt_utc.day + (dt_utc.hour + (dt_utc.minute + (dt_utc.second + dt_utc.microsecond/1e6)/60.0)/60.0)/24.0
+        if m <= 2:
+            y -= 1
+            m += 12
+        A = y // 100
+        B = 2 - A + A // 4
+        jd = int(365.25 * (y + 4716)) + int(30.6001 * (m + 1)) + d + B - 1524.5
+        return jd
+
+    def _lst_deg(self, dt_utc: datetime, lon_deg: float) -> float:
+        """计算地方恒星时(度)。lon_deg 东经为正。"""
+        jd = self._julian_day(dt_utc)
+        T = (jd - 2451545.0) / 36525.0
+        gmst = 280.46061837 + 360.98564736629 * (jd - 2451545.0) \
+               + 0.000387933 * T*T - (T**3) / 38710000.0
+        lst = (gmst + lon_deg) % 360.0
+        return lst
+
+    def _altitude_deg(self, ra_deg: float, dec_deg: float, lat_deg: float, lon_deg: float, dt_utc: datetime) -> float:
+        """给定RA/DEC与观察者经纬度和UTC时间，计算地平高度(度)。"""
+        lst = self._lst_deg(dt_utc, lon_deg)
+        H = math.radians((lst - (ra_deg % 360.0)) % 360.0)
+        lat = math.radians(lat_deg)
+        dec = math.radians(dec_deg)
+        sin_alt = math.sin(dec) * math.sin(lat) + math.cos(dec) * math.cos(lat) * math.cos(H)
+        sin_alt = max(-1.0, min(1.0, sin_alt))
+    def _alt_az_deg(self, ra_deg: float, dec_deg: float, lat_deg: float, lon_deg: float, dt_utc: datetime):
+        """给定目标赤道坐标与观测者位置/UTC时间，返回(高度, 方位)（度）。方位以正北为0°，向东为正，范围0-360。"""
+        lst = self._lst_deg(dt_utc, lon_deg)
+        H = math.radians((lst - (ra_deg % 360.0)) % 360.0)
+        lat = math.radians(lat_deg)
+        dec = math.radians(dec_deg)
+        # 高度
+        sin_alt = math.sin(dec) * math.sin(lat) + math.cos(dec) * math.cos(lat) * math.cos(H)
+        sin_alt = max(-1.0, min(1.0, sin_alt))
+        alt = math.asin(sin_alt)
+        # 方位（0°=北，90°=东）
+        y = -math.sin(H) * math.cos(dec)
+        x = math.sin(dec) * math.cos(lat) - math.cos(dec) * math.sin(lat) * math.cos(H)
+        az = math.atan2(y, x)
+        alt_deg = math.degrees(alt)
+        az_deg = (math.degrees(az) + 360.0) % 360.0
+        return alt_deg, az_deg
+
+
+
     def _angular_sep_deg(self, ra1_deg: float, dec1_deg: float, ra2_deg: float, dec2_deg: float) -> float:
         """计算两点(赤道坐标)之间的大圆角距离(度)"""
         try:
@@ -1423,18 +1477,69 @@ class SkyWatcherUI:
         import random
         THRESHOLD = 1.0  # 角距阈值(度)
         MAX_WAIT_S = 300  # 单个目标的最大等待时间(秒)
+        # 若已设置地点，则按地平高度>5°筛选随机目标
+        obs_lat = getattr(self, 'obs_lat', None)
+        obs_lon = getattr(self, 'obs_lon', None)
+        alt_filter_enabled = (obs_lat is not None and obs_lon is not None)
+        if not alt_filter_enabled:
+            self.log("! 未设置地点，无法筛选地平高度>5°，按原逻辑生成随机目标")
+
         for i in range(count):
             if not self.random_goto_running:
                 break
-            # 生成随机RA/DEC（避免靠近两极）
-            ra_deg = random.uniform(0, 360)
-            dec_deg = random.uniform(-60, 60)
-            self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° ...")
+            # 生成随机RA/DEC，并（若可）筛选地平高度>5°
+            attempts = 0
+            while True:
+                ra_deg = random.uniform(0, 360)
+                dec_deg = random.uniform(-60, 60)
+                if not alt_filter_enabled:
+                    alt_ok = True
+                    alt_deg = None
+                else:
+                    dt_utc = datetime.now(timezone.utc)
+                    alt_deg, az_deg = self._alt_az_deg(ra_deg, dec_deg, obs_lat, obs_lon, dt_utc)
+                    alt_ok = (alt_deg is not None and alt_deg > 5.0)
+                if alt_ok:
+                    break
+                attempts += 1
+                if attempts > 200:
+                    self.log("! 多次尝试仍未找到地平高度>5°的目标，跳过本次")
+                    break
+            if attempts > 200:
+                continue
+
+            if alt_filter_enabled:
+                self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° (地平高度≈{alt_deg:.2f}°，方位≈{az_deg:.2f}°) ...")
+            else:
+                self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° ...")
+            # 基础参数输出
+            try:
+                tz_hours = int(self.env_tz_var.get()) if hasattr(self, 'env_tz_var') else 0
+            except Exception:
+                tz_hours = 0
+            use_dt_utc = dt_utc if alt_filter_enabled else datetime.now(timezone.utc)
+            dt_local = use_dt_utc.astimezone(timezone(timedelta(hours=int(tz_hours))))
+            loc_name = getattr(self, 'obs_loc_name', None)
+            lat = getattr(self, 'obs_lat', None)
+            lon = getattr(self, 'obs_lon', None)
+            if lat is not None and lon is not None:
+                ns = 'N' if lat >= 0 else 'S'
+                ew = 'E' if lon >= 0 else 'W'
+                gps_str = f"{abs(lat):.4f}°{ns}, {abs(lon):.4f}°{ew}"
+            else:
+                gps_str = "未知"
+            alt_str = f"{alt_deg:.2f}°" if alt_filter_enabled else "N/A"
+            az_str  = f"{az_deg:.2f}°" if alt_filter_enabled else "N/A"
+            self.log(
+                f"基础参数：地点={loc_name or '未知'} | GPS={gps_str} | 时间={dt_local.isoformat()} | 时区=UTC{int(tz_hours):+d} | "
+                f"目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 高度={alt_str} | 方位={az_str}"
+            )
+
+
             # 在Stellarium中标记该目标点（先切换到新的颜色以便区分）
             if self.stellarium_sync:
                 try:
                     self.stellarium_sync.next_color()
-                    # 使用圆圈标记，尺寸略大，便于观察
                     self.stellarium_sync.mark_point(ra_deg, dec_deg, style="circle", size=8.0)
                 except Exception:
                     pass
