@@ -15,6 +15,8 @@ import logging
 import re
 import random
 
+import math
+
 from serial.tools import list_ports
 from config import load_config, save_config
 
@@ -1402,8 +1404,25 @@ class SkyWatcherUI:
         self.random_goto_thread = threading.Thread(target=self._random_goto_worker, args=(10, delay_s), daemon=True)
         self.random_goto_thread.start()
 
+
+    def _angular_sep_deg(self, ra1_deg: float, dec1_deg: float, ra2_deg: float, dec2_deg: float) -> float:
+        """计算两点(赤道坐标)之间的大圆角距离(度)"""
+        try:
+            r1 = math.radians(ra1_deg % 360.0)
+            r2 = math.radians(ra2_deg % 360.0)
+            d1 = math.radians(max(-90.0, min(90.0, dec1_deg)))
+            d2 = math.radians(max(-90.0, min(90.0, dec2_deg)))
+            dr = (r1 - r2) % (2 * math.pi)
+            cos_sep = math.sin(d1) * math.sin(d2) + math.cos(d1) * math.cos(d2) * math.cos(dr)
+            cos_sep = max(-1.0, min(1.0, cos_sep))
+            return math.degrees(math.acos(cos_sep))
+        except Exception:
+            return 999.0
+
     def _random_goto_worker(self, count: int, delay_s: int):
         import random
+        THRESHOLD = 1.0  # 角距阈值(度)
+        MAX_WAIT_S = 300  # 单个目标的最大等待时间(秒)
         for i in range(count):
             if not self.random_goto_running:
                 break
@@ -1411,24 +1430,56 @@ class SkyWatcherUI:
             ra_deg = random.uniform(0, 360)
             dec_deg = random.uniform(-60, 60)
             self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° ...")
+            # 在Stellarium中标记该目标点（先切换到新的颜色以便区分）
+            if self.stellarium_sync:
+                try:
+                    self.stellarium_sync.next_color()
+                    # 使用圆圈标记，尺寸略大，便于观察
+                    self.stellarium_sync.mark_point(ra_deg, dec_deg, style="circle", size=8.0)
+                except Exception:
+                    pass
+
             try:
                 ok = self.synscan.goto_ra_dec(ra_deg, dec_deg)
                 if not ok:
                     self.log("✗ 发送GOTO失败，跳过")
-                else:
-                    # 可选：通知Stellarium换色以区分轨迹
-                    if self.stellarium_sync:
-                        try:
-                            self.stellarium_sync.next_color()
-                        except Exception:
-                            pass
+                    continue
+
             except Exception as e:
                 self.log(f"✗ 随机GOTO异常: {e}")
-            # 简单等待一段时间（设备运动时间），再进行下一次
-            for _ in range(delay_s):
+                continue
+
+            # 等待到达: 基于自动监控数据(current_ra/current_dec)判断角距 < 1°
+            start_t = time.time()
+            last_log_t = 0.0
+            while self.random_goto_running:
+                cra, cdec = self.current_ra, self.current_dec
+                # 若未开启监控或尚未更新，则尝试主动读取
+                if (cra is None or cdec is None) and self.synscan and not self.running:
+                    pos = self.synscan.get_ra_dec()
+                    if pos:
+                        cra, cdec = pos
+                        self.current_ra, self.current_dec = pos
+                if cra is not None and cdec is not None:
+                    sep = self._angular_sep_deg(cra, cdec, ra_deg, dec_deg)
+                    now = time.time()
+                    if sep <= THRESHOLD:
+                        self.log(f"  ✓ 已到达：当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 差值≈{sep:.2f}°")
+                        break
+                    if now - last_log_t >= 2.5:
+                        self.log(f"  … 当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 差值≈{sep:.2f}°，继续等待(<{THRESHOLD}°)")
+                        last_log_t = now
+                time.sleep(0.5)
+                if time.time() - start_t > MAX_WAIT_S:
+                    self.log("  ⚠ 等待超时，继续下一个目标")
+                    break
+
+            # 达到阈值后，额外等待设定的间隔秒数(用于稳定)
+            for _ in range(max(0, int(delay_s))):
                 if not self.random_goto_running:
                     break
                 time.sleep(1)
+
         self.random_goto_running = False
         self.log("随机GOTO完成或已停止")
 

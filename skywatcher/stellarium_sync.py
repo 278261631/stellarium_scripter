@@ -149,6 +149,67 @@ MarkerMgr.markerEquatorial("{ra_str}", "{dec_str}", true, true, "dotted", "{colo
             self.logger.error(f"更新位置异常: {e}")
             return False
 
+
+        '''  temporarily disable mis-indented method below to fix TabError
+
+	    def mark_point(self, ra_deg: float, dec_deg: float, color: Optional[str] = None,
+	                    style: str = "cross", size: float = 8.0) -> bool:
+	        """在Stellarium中标记一个赤道坐标点。
+	        Args:
+	            ra_deg: 赤经(度)
+	            dec_deg: 赤纬(度)
+	            color: 颜色HEX字符串，默认使用当前颜色
+	            style: 标记样式（如 "cross" | "dotted" | "circle"）
+	            size: 标记尺寸
+	        """
+	        try:
+	            ra_str, dec_str = self.ra_dec_to_hms_dms(ra_deg, dec_deg)
+	            use_color = color or self.COLORS[self.color_index]
+	            script = (
+	                f'MarkerMgr.markerEquatorial("{ra_str}", "{dec_str}", '
+	                f'true, true, "{style}", "{use_color}", {size}, false, 0, true);'
+	            )
+	            self.logger.info("执行Stellarium脚本(标记点):\n%s", script)
+	            resp = requests.post(f"{self.api_url}/scripts/direct", data={"code": script}, timeout=2)
+	            if resp.status_code == 200:
+	                self.logger.debug(f"✓ 已标记点 RA={ra_deg:.3f}° DEC={dec_deg:.3f}° 颜色={use_color}")
+	                return True
+	            self.logger.error(f"✗ 标记点失败: {resp.status_code}")
+	            return False
+	        except Exception as e:
+	            self.logger.error(f"标记点异常: {e}")
+	            return False
+
+        '''
+    def mark_point(self, ra_deg: float, dec_deg: float, color: Optional[str] = None,
+                    style: str = "circle", size: float = 8.0) -> bool:
+        """在Stellarium中标记一个赤道坐标点。
+        Args:
+            ra_deg: 赤经(度)
+            dec_deg: 赤纬(度)
+            color: 颜色HEX字符串，默认使用当前颜色
+            style: 标记样式（如 "cross" | "dotted" | "circle"）
+            size: 标记尺寸
+        """
+        try:
+            ra_str, dec_str = self.ra_dec_to_hms_dms(ra_deg, dec_deg)
+            use_color = color or self.COLORS[self.color_index]
+            script = (
+                f'MarkerMgr.markerEquatorial("{ra_str}", "{dec_str}", '
+                f'true, true, "{style}", "{use_color}", {size}, false, 0, true);'
+            )
+            self.logger.info("执行Stellarium脚本(标记点):\n%s", script)
+            resp = requests.post(f"{self.api_url}/scripts/direct", data={"code": script}, timeout=2)
+            if resp.status_code == 200:
+                self.logger.debug(f"✓ 已标记点 RA={ra_deg:.3f}° DEC={dec_deg:.3f}° 颜色={use_color}")
+                return True
+            self.logger.error(f"✗ 标记点失败: {resp.status_code}")
+            return False
+        except Exception as e:
+            self.logger.error(f"标记点异常: {e}")
+            return False
+
+
     def point_to_position(self, ra_deg: float, dec_deg: float) -> bool:
         """
         将Stellarium视角指向指定位置
