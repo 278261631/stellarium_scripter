@@ -1477,155 +1477,158 @@ class SkyWatcherUI:
         import random
         THRESHOLD = 1.0  # 角距阈值(度)
         MAX_WAIT_S = 300  # 单个目标的最大等待时间(秒)
-        # 若已设置地点，则按地平高度>5°筛选随机目标
-        obs_lat = getattr(self, 'obs_lat', None)
-        obs_lon = getattr(self, 'obs_lon', None)
-        alt_filter_enabled = (obs_lat is not None and obs_lon is not None)
-        if not alt_filter_enabled:
-            # 使用默认地点（北京）启用高度筛选，并更新UI显示
-            try:
-                default_name = "北京" if hasattr(self, "_preset_locations") and "北京" in self._preset_locations else list(self._preset_locations.keys())[0]
-                lat, lon = self._preset_locations[default_name]
-            except Exception:
-                default_name, lat, lon = "默认", 39.9, 116.4
-            self.obs_lat, self.obs_lon = lat, lon
-            self.obs_loc_name = default_name
-            alt_filter_enabled = True
-            # 更新UI变量显示（放入主线程）
-            if hasattr(self, "root"):
+        if True:
+            # 若已设置地点，则按地平高度>5°筛选随机目标
+            obs_lat = getattr(self, 'obs_lat', None)
+            obs_lon = getattr(self, 'obs_lon', None)
+            alt_filter_enabled = (obs_lat is not None and obs_lon is not None)
+            if not alt_filter_enabled:
+                # 使用默认地点（北京）启用高度筛选，并更新UI显示
                 try:
-                    if hasattr(self, "env_loc_var"):
-                        self.root.after(0, lambda: self.env_loc_var.set(default_name))
+                    default_name = "北京" if hasattr(self, "_preset_locations") and "北京" in self._preset_locations else list(self._preset_locations.keys())[0]
+                    lat, lon = self._preset_locations[default_name]
                 except Exception:
-                    pass
+                    default_name, lat, lon = "默认", 39.9, 116.4
+                self.obs_lat, self.obs_lon = lat, lon
+                self.obs_loc_name = default_name
+                # 同步到本地变量，避免后续使用旧的 None 值
+                obs_lat, obs_lon = lat, lon
+                alt_filter_enabled = True
+                # 更新UI变量显示（放入主线程）
+                if hasattr(self, "root"):
+                    try:
+                        if hasattr(self, "env_loc_var"):
+                            self.root.after(0, lambda: self.env_loc_var.set(default_name))
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, "env_tz_var"):
+                            self.root.after(0, lambda: self.env_tz_var.set("+8"))
+                    except Exception:
+                        pass
+                info_msg = f"! 未设置地点，已使用默认地点：{default_name} (lat={lat:.4f}, lon={lon:.4f})"
                 try:
-                    if hasattr(self, "env_tz_var"):
-                        self.root.after(0, lambda: self.env_tz_var.set("+8"))
-                except Exception:
-                    pass
-            info_msg = f"! 未设置地点，已使用默认地点：{default_name} (lat={lat:.4f}, lon={lon:.4f})"
-            try:
-                if hasattr(self, 'gps_label') and hasattr(self, 'root'):
-                    ns = 'N' if lat >= 0 else 'S'
-                    ew = 'E' if lon >= 0 else 'W'
-                    text = f"{abs(lat):.4f}°{ns}, {abs(lon):.4f}°{ew}"
-                    self.root.after(0, lambda t=text: self.gps_label.config(text=t))
-            except Exception:
-                pass
-
-            self.log(info_msg)
-            print(info_msg, flush=True)
-
-        for i in range(count):
-            if not self.random_goto_running:
-                break
-            # 生成随机RA/DEC，并（若可）筛选地平高度>5°
-            attempts = 0
-            while True:
-                ra_deg = random.uniform(0, 360)
-                dec_deg = random.uniform(-60, 60)
-                if not alt_filter_enabled:
-                    alt_ok = True
-                    alt_deg = None
-                else:
-                    dt_utc = datetime.now(timezone.utc)
-                    alt_deg, az_deg = self._alt_az_deg(ra_deg, dec_deg, obs_lat, obs_lon, dt_utc)
-                    alt_ok = (alt_deg is not None and alt_deg > 5.0)
-                if alt_ok:
-                    break
-                attempts += 1
-                if attempts > 200:
-                    self.log("! 多次尝试仍未找到地平高度>5°的目标，跳过本次")
-                    break
-            if attempts > 200:
-                continue
-
-            if alt_filter_enabled:
-                self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° (地平高度≈{alt_deg:.2f}°，方位≈{az_deg:.2f}°) ...")
-            else:
-                self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° ...")
-            # 基础参数输出（日志 + 控制台）
-            try:
-                tz_hours = int(self.env_tz_var.get()) if hasattr(self, 'env_tz_var') else 0
-            except Exception:
-                tz_hours = 0
-            use_dt_utc = dt_utc if alt_filter_enabled else datetime.now(timezone.utc)
-            dt_local = use_dt_utc.astimezone(timezone(timedelta(hours=int(tz_hours))))
-            loc_name = getattr(self, 'obs_loc_name', None)
-            lat = getattr(self, 'obs_lat', None)
-            lon = getattr(self, 'obs_lon', None)
-            if lat is not None and lon is not None:
-                ns = 'N' if lat >= 0 else 'S'
-                ew = 'E' if lon >= 0 else 'W'
-                gps_str = f"{abs(lat):.4f}°{ns}, {abs(lon):.4f}°{ew}"
-            else:
-                gps_str = "未知"
-            alt_str = f"{alt_deg:.2f}°" if alt_filter_enabled else "N/A"
-            az_str  = f"{az_deg:.2f}°" if alt_filter_enabled else "N/A"
-            base_msg = (f"基础参数：地点={loc_name or '未知'} | GPS={gps_str} | 时间={dt_local.isoformat()} | 时区=UTC{int(tz_hours):+d} | "
-                        f"目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 高度={alt_str} | 方位={az_str}")
-            self.log(base_msg)
-            print(base_msg, flush=True)
-
-
-            # 在Stellarium中标记该目标点，并加上序号标签（T1、T2...）
-            if self.stellarium_sync:
-                try:
-                    self.stellarium_sync.next_color()
-                    label = f"T{i+1}"
-                    self.stellarium_sync.mark_point(ra_deg, dec_deg, style="circle", size=8.0, label=label)
+                    if hasattr(self, 'gps_label') and hasattr(self, 'root'):
+                        ns = 'N' if lat >= 0 else 'S'
+                        ew = 'E' if lon >= 0 else 'W'
+                        text = f"{abs(lat):.4f}°{ns}, {abs(lon):.4f}°{ew}"
+                        self.root.after(0, lambda t=text: self.gps_label.config(text=t))
                 except Exception:
                     pass
 
-            try:
-                ok = self.synscan.goto_ra_dec(ra_deg, dec_deg)
-                if not ok:
-                    self.log("✗ 发送GOTO失败，跳过")
-                    continue
+                self.log(info_msg)
+                print(info_msg, flush=True)
 
-            except Exception as e:
-                self.log(f"✗ 随机GOTO异常: {e}")
-                continue
-
-            # 等待到达: 基于自动监控数据(current_ra/current_dec)判断角距 < 1°
-            start_t = time.time()
-            last_log_t = 0.0
-            while self.random_goto_running:
-                cra, cdec = self.current_ra, self.current_dec
-                # 若未开启监控或尚未更新，则尝试主动读取
-                if (cra is None or cdec is None) and self.synscan and not self.running:
-                    pos = self.synscan.get_ra_dec()
-                    if pos:
-                        cra, cdec = pos
-                        self.current_ra, self.current_dec = pos
-                if cra is not None and cdec is not None:
-                    sep = self._angular_sep_deg(cra, cdec, ra_deg, dec_deg)
-                    # 分别计算 RA/DEC 的差值（RA 取最小环差）
-                    dra = abs(((cra - ra_deg + 180.0) % 360.0) - 180.0)
-                    ddec = abs(cdec - dec_deg)
-                    now = time.time()
-                    if sep <= THRESHOLD:
-                        msg = (f"  ✓ 已到达：当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | "
-                               f"ΔRA≈{dra:.2f}° ΔDEC≈{ddec:.2f}° (总角距≈{sep:.2f}°)")
-                        self.log(msg)
-                        print(msg, flush=True)
-                        break
-                    if now - last_log_t >= 2.5:
-                        msg = (f"  … 当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | "
-                               f"ΔRA≈{dra:.2f}° ΔDEC≈{ddec:.2f}° (总角距≈{sep:.2f}°)，继续等待(<{THRESHOLD}°)")
-                        self.log(msg)
-                        print(msg, flush=True)
-                        last_log_t = now
-                time.sleep(0.5)
-                if time.time() - start_t > MAX_WAIT_S:
-                    self.log("  ⚠ 等待超时，继续下一个目标")
-                    break
-
-            # 达到阈值后，额外等待设定的间隔秒数(用于稳定)
-            for _ in range(max(0, int(delay_s))):
+            for i in range(count):
                 if not self.random_goto_running:
                     break
-                time.sleep(1)
+                # 生成随机RA/DEC，并（若可）筛选地平高度>5°
+                attempts = 0
+                while True:
+                    ra_deg = random.uniform(0, 360)
+                    dec_deg = random.uniform(-60, 60)
+                    if not alt_filter_enabled:
+                        alt_ok = True
+                        alt_deg = None
+                    else:
+                        dt_utc = datetime.now(timezone.utc)
+                        alt_deg, az_deg = self._alt_az_deg(ra_deg, dec_deg, obs_lat, obs_lon, dt_utc)
+                        alt_ok = (alt_deg is not None and alt_deg > 5.0)
+                    if alt_ok:
+                        break
+                    attempts += 1
+                    if attempts > 200:
+                        self.log("! 多次尝试仍未找到地平高度>5°的目标，跳过本次")
+                        break
+                if attempts > 200:
+                    continue
+
+                if alt_filter_enabled:
+                    self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° (地平高度≈{alt_deg:.2f}°，方位≈{az_deg:.2f}°) ...")
+                else:
+                    self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° ...")
+                # 基础参数输出（日志 + 控制台）
+                try:
+                    tz_hours = int(self.env_tz_var.get()) if hasattr(self, 'env_tz_var') else 0
+                except Exception:
+                    tz_hours = 0
+                use_dt_utc = dt_utc if alt_filter_enabled else datetime.now(timezone.utc)
+                dt_local = use_dt_utc.astimezone(timezone(timedelta(hours=int(tz_hours))))
+                loc_name = getattr(self, 'obs_loc_name', None)
+                lat = getattr(self, 'obs_lat', None)
+                lon = getattr(self, 'obs_lon', None)
+                if lat is not None and lon is not None:
+                    ns = 'N' if lat >= 0 else 'S'
+                    ew = 'E' if lon >= 0 else 'W'
+                    gps_str = f"{abs(lat):.4f}°{ns}, {abs(lon):.4f}°{ew}"
+                else:
+                    gps_str = "未知"
+                alt_str = f"{alt_deg:.2f}°" if alt_filter_enabled else "N/A"
+                az_str  = f"{az_deg:.2f}°" if alt_filter_enabled else "N/A"
+                base_msg = (f"基础参数：地点={loc_name or '未知'} | GPS={gps_str} | 时间={dt_local.isoformat()} | 时区=UTC{int(tz_hours):+d} | "
+                            f"目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 高度={alt_str} | 方位={az_str}")
+                self.log(base_msg)
+                print(base_msg, flush=True)
+
+                # 在Stellarium中标记该目标点，并加上序号标签（T1、T2...）
+                if self.stellarium_sync:
+                    try:
+                        self.stellarium_sync.next_color()
+                        label = f"T{i+1}"
+                        self.stellarium_sync.mark_point(ra_deg, dec_deg, style="circle", size=8.0, label=label)
+                    except Exception:
+                        pass
+
+                try:
+                    ok = self.synscan.goto_ra_dec(ra_deg, dec_deg)
+                    if not ok:
+                        self.log("✗ 发送GOTO失败，跳过")
+                        continue
+                except Exception as e:
+                    self.log(f"✗ 随机GOTO异常: {e}")
+                    continue
+
+                # 等待到达: 基于自动监控数据(current_ra/current_dec)判断角距 < 1°
+                start_t = time.time()
+                last_log_t = 0.0
+                while self.random_goto_running:
+                    cra, cdec = self.current_ra, self.current_dec
+                    # 若未开启监控或尚未更新，则尝试主动读取
+                    if (cra is None or cdec is None) and self.synscan and not self.running:
+                        pos = self.synscan.get_ra_dec()
+                        if pos:
+                            cra, cdec = pos
+                            self.current_ra, self.current_dec = pos
+                    if cra is not None and cdec is not None:
+                        sep = self._angular_sep_deg(cra, cdec, ra_deg, dec_deg)
+                        # 分别计算 RA/DEC 的差值（RA 取最小环差）
+                        dra = abs(((cra - ra_deg + 180.0) % 360.0) - 180.0)
+                        ddec = abs(cdec - dec_deg)
+                        now = time.time()
+                        if sep <= THRESHOLD:
+                            msg = (f"  ✓ 已到达：当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | "
+                                   f"ΔRA≈{dra:.2f}° ΔDEC≈{ddec:.2f}° (总角距≈{sep:.2f}°)")
+                            self.log(msg)
+                            print(msg, flush=True)
+                            break
+                        if now - last_log_t >= 2.5:
+                            msg = (f"  … 当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | "
+                                   f"ΔRA≈{dra:.2f}° ΔDEC≈{ddec:.2f}° (总角距≈{sep:.2f}°)，继续等待(<{THRESHOLD}°)")
+                            self.log(msg)
+                            print(msg, flush=True)
+                            last_log_t = now
+                    time.sleep(0.5)
+                    if time.time() - start_t > MAX_WAIT_S:
+                        self.log("  ⚠ 等待超时，继续下一个目标")
+                        break
+
+                # 达到阈值后，额外等待设定的间隔秒数(用于稳定)
+                for _ in range(max(0, int(delay_s))):
+                    if not self.random_goto_running:
+                        break
+                    time.sleep(1)
+
+
 
         self.random_goto_running = False
         self.log("随机GOTO完成或已停止")
