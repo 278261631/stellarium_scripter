@@ -126,12 +126,12 @@ class SkyWatcherUI:
         ttk.Button(time_frame, text="应用时间/时区(设备+Stellarium)", command=self.apply_time_to_both).grid(row=0, column=4, padx=8)
 
         # 随机GOTO
-        rand_frame = ttk.LabelFrame(env_tab, text="随机GOTO(10个目标)", padding=10)
+        rand_frame = ttk.LabelFrame(env_tab, text="随机GOTO", padding=10)
         rand_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=6)
 
-        ttk.Label(rand_frame, text="间隔(秒):").grid(row=0, column=0, sticky=tk.W)
-        self.env_goto_delay_var = tk.StringVar(value="8")
-        ttk.Spinbox(rand_frame, from_=2, to=60, textvariable=self.env_goto_delay_var, width=6).grid(row=0, column=1, padx=6)
+        ttk.Label(rand_frame, text="数量(个):").grid(row=0, column=0, sticky=tk.W)
+        self.env_goto_count_var = tk.StringVar(value="10")
+        ttk.Spinbox(rand_frame, from_=1, to=999, textvariable=self.env_goto_count_var, width=6).grid(row=0, column=1, padx=6)
         ttk.Button(rand_frame, text="开始随机GOTO", command=self.start_random_goto_sequence).grid(row=0, column=2, padx=8)
         ttk.Button(rand_frame, text="停止", command=self.stop_random_goto_sequence).grid(row=0, column=3, padx=4)
 
@@ -1401,12 +1401,12 @@ class SkyWatcherUI:
             self.log("✗ 设备未连接，无法执行GOTO")
             return
         try:
-            delay_s = max(2, int(self.env_goto_delay_var.get())) if hasattr(self, 'env_goto_delay_var') else 8
+            count = max(1, int(self.env_goto_count_var.get())) if hasattr(self, 'env_goto_count_var') else 10
         except Exception:
-            delay_s = 8
+            count = 10
         self.random_goto_running = True
-        self.log(f"开始随机GOTO：共10个目标，间隔{delay_s}s")
-        self.random_goto_thread = threading.Thread(target=self._random_goto_worker, args=(10, delay_s), daemon=True)
+        self.log(f"开始随机GOTO：共{count}个目标")
+        self.random_goto_thread = threading.Thread(target=self._random_goto_worker, args=(count,), daemon=True)
         self.random_goto_thread.start()
 
 
@@ -1473,7 +1473,7 @@ class SkyWatcherUI:
         except Exception:
             return 999.0
 
-    def _random_goto_worker(self, count: int, delay_s: int):
+    def _random_goto_worker(self, count: int):
         import random
         THRESHOLD = 1.0  # 角距阈值(度)
         MAX_WAIT_S = 300  # 单个目标的最大等待时间(秒)
@@ -1565,8 +1565,9 @@ class SkyWatcherUI:
                     gps_str = "未知"
                 alt_str = f"{alt_deg:.2f}°" if alt_filter_enabled else "N/A"
                 az_str  = f"{az_deg:.2f}°" if alt_filter_enabled else "N/A"
+                label = f"T{i+1}"
                 base_msg = (f"基础参数：地点={loc_name or '未知'} | GPS={gps_str} | 时间={dt_local.isoformat()} | 时区=UTC{int(tz_hours):+d} | "
-                            f"目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 高度={alt_str} | 方位={az_str}")
+                            f"目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 高度={alt_str} | 方位={az_str} | 标签={label}")
                 self.log(base_msg)
                 print(base_msg, flush=True)
 
@@ -1574,7 +1575,6 @@ class SkyWatcherUI:
                 if self.stellarium_sync:
                     try:
                         self.stellarium_sync.next_color()
-                        label = f"T{i+1}"
                         self.stellarium_sync.mark_point(ra_deg, dec_deg, style="circle", size=8.0, label=label)
                     except Exception:
                         pass
@@ -1622,11 +1622,6 @@ class SkyWatcherUI:
                         self.log("  ⚠ 等待超时，继续下一个目标")
                         break
 
-                # 达到阈值后，额外等待设定的间隔秒数(用于稳定)
-                for _ in range(max(0, int(delay_s))):
-                    if not self.random_goto_running:
-                        break
-                    time.sleep(1)
 
 
 

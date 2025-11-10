@@ -873,7 +873,7 @@ class SynScanProtocol:
         设置观测位置
 
         使用固件的Z1命令(自定义协议):
-        - :Z1+DD.DDDD,+DDD.DDDD,+DDD\r 设置纬度、经度、海拔（注意最后一段为3位，不要发四位0）
+        - :Z1+DD.DDDD,+DDD.DDDD,+DDD\r 设置纬度、经度、海拔（海拔字段为3位数字，带符号共4字符；例如 0m -> +000，5m -> +005，120m -> +120）
 
         Args:
             latitude: 纬度 (-90.0 到 +90.0, 北纬为正)
@@ -892,7 +892,7 @@ class SynScanProtocol:
 
         try:
             # 构建Z1命令（最后一段固定3位宽度，例如 0 -> +000）
-            cmd = f":Z1{latitude:+.4f},{longitude:+.4f},{elevation:+03d}\r"
+            cmd = f":Z1{latitude:+.4f},{longitude:+.4f},{elevation:+04d}\r"
             self.logger.debug(f"发送Z1命令: {repr(cmd)}")
 
             # 清空输入缓冲区
