@@ -9,10 +9,12 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 import logging
 import re
+import random
+
 from serial.tools import list_ports
 from config import load_config, save_config
 
@@ -40,6 +42,9 @@ class SkyWatcherUI:
         # 运行状态
         self.running = False
         self.update_thread = None
+        # 随机GOTO状态
+        self.random_goto_running = False
+        self.random_goto_thread = None
 
         # 当前位置 (从实时监控获取)
         self.current_ra = None
@@ -58,9 +63,82 @@ class SkyWatcherUI:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         control_tab = ttk.Frame(self.notebook)
+
+        # === 新增标签页：地点/时间/自动GOTO ===
+        env_tab = ttk.Frame(self.notebook)
+        env_tab.columnconfigure(0, weight=1)
+
+        # 预设地点
+        self._preset_locations = {
+            "北极点": (90.0, 0.0),
+            "南极点": (-90.0, 0.0),
+            "澳大利亚": (-25.0, 135.0),
+            "南非": (-26.0, 28.0),
+            "智利": (-33.4, -70.6),
+            "加那利群岛": (28.3, -16.5),
+            "墨西哥": (19.4, -99.1),
+            "北京": (39.9, 116.4),
+            "新疆": (43.8, 87.6),
+            "英国": (51.5, -0.1),
+        }
+
+        loc_frame = ttk.LabelFrame(env_tab, text="地点预设", padding=10)
+        loc_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=6)
+        loc_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(loc_frame, text="地点:").grid(row=0, column=0, sticky=tk.W)
+        self.env_loc_var = tk.StringVar(value="北京")
+        self.env_loc_combo = ttk.Combobox(loc_frame, textvariable=self.env_loc_var, width=20, state="readonly",
+                                          values=list(self._preset_locations.keys()))
+        self.env_loc_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=6)
+        self.env_loc_combo.current(list(self._preset_locations.keys()).index("北京"))
+
+        self.env_loc_info = ttk.Label(loc_frame, text="lat=39.9, lon=116.4")
+        self.env_loc_info.grid(row=0, column=2, sticky=tk.W, padx=6)
+
+        def _on_loc_change(event=None):
+            name = self.env_loc_var.get()
+            lat, lon = self._preset_locations.get(name, (0.0, 0.0))
+            self.env_loc_info.config(text=f"lat={lat:.2f}, lon={lon:.2f}")
+        self.env_loc_combo.bind("<<ComboboxSelected>>", _on_loc_change)
+
+        ttk.Button(loc_frame, text="应用地点(设备+Stellarium)", command=self.apply_location_to_both).grid(row=0, column=3, padx=8)
+
+        # 时间与时区
+        time_frame = ttk.LabelFrame(env_tab, text="时间/时区", padding=10)
+        time_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=6)
+        time_frame.columnconfigure(5, weight=1)
+
+        ttk.Label(time_frame, text="时间预设:").grid(row=0, column=0, sticky=tk.W)
+        self.env_time_preset_var = tk.StringVar(value="当前时间")
+        self.env_time_combo = ttk.Combobox(time_frame, textvariable=self.env_time_preset_var, width=12, state="readonly",
+                                           values=["当前时间", "春分", "夏至", "秋分", "冬至"])
+        self.env_time_combo.grid(row=0, column=1, padx=6, sticky=tk.W)
+
+        ttk.Label(time_frame, text="时区(UTC±小时):").grid(row=0, column=2, sticky=tk.W, padx=(12, 0))
+        self.env_tz_var = tk.StringVar(value="8")
+        self.env_tz_combo = ttk.Combobox(time_frame, textvariable=self.env_tz_var, width=4, state="readonly",
+                                         values=[str(i) for i in range(-12, 15)])
+        self.env_tz_combo.grid(row=0, column=3, sticky=tk.W)
+
+        ttk.Button(time_frame, text="应用时间/时区(设备+Stellarium)", command=self.apply_time_to_both).grid(row=0, column=4, padx=8)
+
+        # 随机GOTO
+        rand_frame = ttk.LabelFrame(env_tab, text="随机GOTO(10个目标)", padding=10)
+        rand_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=6)
+
+        ttk.Label(rand_frame, text="间隔(秒):").grid(row=0, column=0, sticky=tk.W)
+        self.env_goto_delay_var = tk.StringVar(value="8")
+        ttk.Spinbox(rand_frame, from_=2, to=60, textvariable=self.env_goto_delay_var, width=6).grid(row=0, column=1, padx=6)
+        ttk.Button(rand_frame, text="开始随机GOTO", command=self.start_random_goto_sequence).grid(row=0, column=2, padx=8)
+        ttk.Button(rand_frame, text="停止", command=self.stop_random_goto_sequence).grid(row=0, column=3, padx=4)
+
         log_tab = ttk.Frame(self.notebook)
         self.notebook.add(control_tab, text="控制")
         self.notebook.add(log_tab, text="日志")
+
+        # 在控制/日志标签后添加“地点/时间”标签
+        self.notebook.add(env_tab, text="地点/时间")
 
         # 控制页主容器
         main_frame = ttk.Frame(control_tab, padding="10")
@@ -1222,6 +1300,145 @@ class SkyWatcherUI:
             self.speed_control_visible = True
             if hasattr(self, 'speed_toggle_btn'):
                 self.speed_toggle_btn.config(text="隐藏轴速控制")
+
+
+    # ================= 地点/时间/随机GOTO 事件处理 =================
+    def apply_location_to_both(self):
+        name = getattr(self, 'env_loc_var', None).get() if hasattr(self, 'env_loc_var') else None
+        if not name:
+            self.log("✗ 未选择地点")
+            return
+        lat, lon = self._preset_locations.get(name, (None, None))
+        if lat is None:
+            self.log("✗ 预设地点不存在")
+            return
+        self.log(f"应用地点: {name} (lat={lat:.4f}, lon={lon:.4f})")
+        # 设备
+        if self.synscan:
+            try:
+                ok = self.synscan.set_location(lat, lon, 0)
+                self.log("✓ 设备地点已设置" if ok else "✗ 设备地点设置失败")
+            except Exception as e:
+                self.log(f"✗ 设备地点设置异常: {e}")
+        else:
+            self.log("! 设备未连接，跳过设备地点设置")
+        # Stellarium
+        if self.stellarium_sync:
+            try:
+                ok2 = self.stellarium_sync.set_location(lat, lon, 0, name=name)
+                self.log("✓ Stellarium地点已设置" if ok2 else "✗ Stellarium地点设置失败")
+            except Exception as e:
+                self.log(f"✗ Stellarium地点设置异常: {e}")
+        else:
+            self.log("! Stellarium未连接，跳过Stellarium地点设置")
+        # 更新UI GPS标签
+        if hasattr(self, 'gps_label'):
+            ns = 'N' if lat >= 0 else 'S'
+            ew = 'E' if lon >= 0 else 'W'
+            self.gps_label.config(text=f"{abs(lat):.4f}°{ns}, {abs(lon):.4f}°{ew}")
+
+    def _solar_preset_datetime(self, preset: str, tz_hours: int) -> datetime:
+        year = datetime.now().year
+        tzinfo = timezone(timedelta(hours=int(tz_hours)))
+        # 简化：使用常见近似日期的中午12:00
+        month_day = {
+            "春分": (3, 20),
+            "夏至": (6, 21),
+            "秋分": (9, 22),
+            "冬至": (12, 21),
+        }
+        if preset in month_day:
+            m, d = month_day[preset]
+            return datetime(year, m, d, 12, 0, 0, tzinfo=tzinfo)
+        return datetime.now(tz=tzinfo)
+
+    def apply_time_to_both(self):
+        preset = getattr(self, 'env_time_preset_var', None).get() if hasattr(self, 'env_time_preset_var') else "当前时间"
+        try:
+            tz_hours = int(self.env_tz_var.get()) if hasattr(self, 'env_tz_var') else 0
+        except Exception:
+            tz_hours = 0
+        dt_local = self._solar_preset_datetime(preset, tz_hours)
+        self.log(f"应用时间/时区: {preset}, 本地时间={dt_local.isoformat()} (UTC{tz_hours:+d})")
+        # 设备：下发本地时间和时区
+        if self.synscan:
+            try:
+                ok = self.synscan.set_time(dt_local.year, dt_local.month, dt_local.day,
+                                           dt_local.hour, dt_local.minute, dt_local.second,
+                                           tz_hours)
+                self.log("✓ 设备时间/时区已设置" if ok else "✗ 设备时间设置失败")
+            except Exception as e:
+                self.log(f"✗ 设备时间设置异常: {e}")
+        else:
+            self.log("! 设备未连接，跳过设备时间设置")
+        # Stellarium：设置时区偏移 + UTC时间(JD)
+        if self.stellarium_sync:
+            try:
+                self.stellarium_sync.set_timezone_shift_hours(float(tz_hours))
+            except Exception as e:
+                self.log(f"! Stellarium时区设置异常: {e}")
+            try:
+                dt_utc = dt_local.astimezone(timezone.utc)
+                ok2 = self.stellarium_sync.set_time(dt_utc)
+                self.log("✓ Stellarium时间已设置" if ok2 else "✗ Stellarium时间设置失败")
+            except Exception as e:
+                self.log(f"✗ Stellarium时间设置异常: {e}")
+        else:
+            self.log("! Stellarium未连接，跳过Stellarium时间设置")
+
+    def start_random_goto_sequence(self):
+        if self.random_goto_running:
+            self.log("! 随机GOTO已在进行中")
+            return
+        if not self.synscan:
+            self.log("✗ 设备未连接，无法执行GOTO")
+            return
+        try:
+            delay_s = max(2, int(self.env_goto_delay_var.get())) if hasattr(self, 'env_goto_delay_var') else 8
+        except Exception:
+            delay_s = 8
+        self.random_goto_running = True
+        self.log(f"开始随机GOTO：共10个目标，间隔{delay_s}s")
+        self.random_goto_thread = threading.Thread(target=self._random_goto_worker, args=(10, delay_s), daemon=True)
+        self.random_goto_thread.start()
+
+    def _random_goto_worker(self, count: int, delay_s: int):
+        import random
+        for i in range(count):
+            if not self.random_goto_running:
+                break
+            # 生成随机RA/DEC（避免靠近两极）
+            ra_deg = random.uniform(0, 360)
+            dec_deg = random.uniform(-60, 60)
+            self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° ...")
+            try:
+                ok = self.synscan.goto_ra_dec(ra_deg, dec_deg)
+                if not ok:
+                    self.log("✗ 发送GOTO失败，跳过")
+                else:
+                    # 可选：通知Stellarium换色以区分轨迹
+                    if self.stellarium_sync:
+                        try:
+                            self.stellarium_sync.next_color()
+                        except Exception:
+                            pass
+            except Exception as e:
+                self.log(f"✗ 随机GOTO异常: {e}")
+            # 简单等待一段时间（设备运动时间），再进行下一次
+            for _ in range(delay_s):
+                if not self.random_goto_running:
+                    break
+                time.sleep(1)
+        self.random_goto_running = False
+        self.log("随机GOTO完成或已停止")
+
+    def stop_random_goto_sequence(self):
+        if self.random_goto_running:
+            self.random_goto_running = False
+            self.log("已请求停止随机GOTO")
+        else:
+            self.log("! 随机GOTO未在进行")
+
 
     def run(self):
         """运行UI主循环"""

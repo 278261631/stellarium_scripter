@@ -9,6 +9,7 @@ import requests
 import logging
 import time
 from typing import Optional
+from datetime import datetime, timezone
 
 
 class StellariumSync:
@@ -394,3 +395,134 @@ try { if (MarkerMgr && MarkerMgr.deleteByType) {
         except Exception as e:
             self.logger.error(f"获取选中目标信息异常: {e}")
             return None
+
+
+    # ---------------------- 位置/时间/时区 设置 ----------------------
+    def set_location(self, latitude: float, longitude: float, altitude: int = 0, name: str = "") -> bool:
+        """设置Stellarium的观察地位置。
+        同步到 RemoteControl: POST /api/location/setlocationfields
+        """
+        try:
+            data = {
+                "latitude": str(float(latitude)),
+                "longitude": str(float(longitude)),
+                "altitude": str(int(altitude)),
+                "name": name or "Remote",
+                "country": "Custom",
+                "planet": "Earth",
+            }
+            resp = requests.post(f"{self.api_url}/location/setlocationfields", data=data, timeout=2)
+            ok = (resp.status_code == 200)
+            if ok:
+                self.logger.info(f"✓ Stellarium地点已设置: lat={latitude}, lon={longitude}, alt={altitude}, name={data['name']}")
+            else:
+                self.logger.error(f"✗ 设置Stellarium地点失败: {resp.status_code}")
+            return ok
+        except Exception as e:
+            self.logger.error(f"设置Stellarium地点异常: {e}")
+            return False
+
+    @staticmethod
+    def _datetime_to_julian_day(dt_utc: datetime) -> float:
+        """将UTC时间转换为儒略日(JD)。要求 dt_utc 为UTC时区。"""
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        else:
+            dt_utc = dt_utc.astimezone(timezone.utc)
+        Y = dt_utc.year
+        M = dt_utc.month
+        D = dt_utc.day
+        h = dt_utc.hour
+        m = dt_utc.minute
+        s = dt_utc.second + dt_utc.microsecond / 1e6
+        if M <= 2:
+            Y -= 1
+            M += 12
+        A = Y // 100
+        B = 2 - A + (A // 4)
+        import math
+        JD0 = math.floor(365.25 * (Y + 4716)) + math.floor(30.6001 * (M + 1)) + D + B - 1524.5
+        frac = (h + m / 60.0 + s / 3600.0) / 24.0
+        return JD0 + frac
+
+    def set_time(self, dt) -> bool:
+        """设置Stellarium的时间为给定datetime。
+        若 dt 为天真时间(naive)，则假定其已经是UTC。
+        """
+        try:
+            if dt.tzinfo is None:
+                dt_utc = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt_utc = dt.astimezone(timezone.utc)
+            jd = self._datetime_to_julian_day(dt_utc)
+            resp = requests.post(f"{self.api_url}/main/time", data={"time": str(jd), "timerate": "0"}, timeout=2)
+            ok = (resp.status_code == 200)
+            if ok:
+                self.logger.info(f"✓ Stellarium时间已设置: JD={jd:.6f} (UTC {dt_utc.isoformat()})")
+            else:
+                self.logger.error(f"✗ 设置Stellarium时间失败: {resp.status_code}")
+            return ok
+        except Exception as e:
+            self.logger.error(f"设置Stellarium时间异常: {e}")
+            return False
+
+    def set_timezone_shift_hours(self, tz_hours: float) -> bool:
+        """尝试设置Stellarium的时区偏移(小时)。不同版本key不同，尽力匹配。"""
+        try:
+            lst = requests.get(f"{self.api_url}/stelproperty/list", timeout=2)
+            if lst.status_code != 200:
+                self.logger.error(f"获取Stellarium属性列表失败: {lst.status_code}")
+                return False
+            props = lst.json() if hasattr(lst, 'json') else {}
+            # 优先寻找包含 gmtShift 的可写属性
+            candidates = []
+            for key, meta in props.items():
+                try:
+                    if ("gmtShift" in key) and bool(meta.get("isWritable", False)):
+                        candidates.append(key)
+                except Exception:
+                    pass
+            # 次选 timeZone 名称属性
+            tz_name_key = None
+            if not candidates:
+                for key, meta in props.items():
+                    try:
+                        if ("timeZone" in key) and bool(meta.get("isWritable", False)):
+                            tz_name_key = key
+                            break
+                    except Exception:
+                        pass
+            # 执行设置
+            if candidates:
+                key = candidates[0]
+                resp = requests.post(f"{self.api_url}/stelproperty/set", data={"id": key, "value": str(float(tz_hours))}, timeout=2)
+                if resp.status_code != 200:
+                    self.logger.error(f"✗ 设置{key}失败: {resp.status_code}")
+                    return False
+                self.logger.info(f"✓ 设置{key}={tz_hours}")
+            elif tz_name_key:
+                sign = '+' if tz_hours >= 0 else '-'
+                hh = int(abs(tz_hours))
+                mm = int(round((abs(tz_hours) - hh) * 60))
+                tz_label = f"UTC{sign}{hh:02d}:{mm:02d}"
+                resp = requests.post(f"{self.api_url}/stelproperty/set", data={"id": tz_name_key, "value": tz_label}, timeout=2)
+                if resp.status_code != 200:
+                    self.logger.error(f"✗ 设置{tz_name_key}失败: {resp.status_code}")
+                    return False
+                self.logger.info(f"✓ 设置{tz_name_key}={tz_label}")
+            else:
+                self.logger.warning("未找到可写的gmtShift/timeZone属性，跳过Stellarium时区设置")
+                return False
+            # 校验
+            st = requests.get(f"{self.api_url}/main/status", timeout=2)
+            if st.status_code == 200:
+                try:
+                    g = float(st.json().get("time", {}).get("gmtShift"))
+                    if abs(g - float(tz_hours)) < 0.01:
+                        return True
+                except Exception:
+                    pass
+            return True
+        except Exception as e:
+            self.logger.error(f"设置Stellarium时区异常: {e}")
+            return False
