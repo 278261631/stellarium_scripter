@@ -1568,11 +1568,12 @@ class SkyWatcherUI:
             print(base_msg, flush=True)
 
 
-            # 在Stellarium中标记该目标点（先切换到新的颜色以便区分）
+            # 在Stellarium中标记该目标点，并加上序号标签（T1、T2...）
             if self.stellarium_sync:
                 try:
                     self.stellarium_sync.next_color()
-                    self.stellarium_sync.mark_point(ra_deg, dec_deg, style="circle", size=8.0)
+                    label = f"T{i+1}"
+                    self.stellarium_sync.mark_point(ra_deg, dec_deg, style="circle", size=8.0, label=label)
                 except Exception:
                     pass
 

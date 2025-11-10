@@ -182,14 +182,15 @@ MarkerMgr.markerEquatorial("{ra_str}", "{dec_str}", true, true, "dotted", "{colo
 
         '''
     def mark_point(self, ra_deg: float, dec_deg: float, color: Optional[str] = None,
-                    style: str = "circle", size: float = 8.0) -> bool:
-        """在Stellarium中标记一个赤道坐标点。
+                    style: str = "circle", size: float = 8.0, label: Optional[str] = None) -> bool:
+        """在Stellarium中标记一个赤道坐标点，可选在同一位置添加文本标签（如序号）。
         Args:
             ra_deg: 赤经(度)
             dec_deg: 赤纬(度)
             color: 颜色HEX字符串，默认使用当前颜色
             style: 标记样式（如 "cross" | "dotted" | "circle"）
             size: 标记尺寸
+            label: 若提供，则在相同赤道坐标处添加文本标签（例如 "T1"）
         """
         try:
             ra_str, dec_str = self.ra_dec_to_hms_dms(ra_deg, dec_deg)
@@ -198,10 +199,26 @@ MarkerMgr.markerEquatorial("{ra_str}", "{dec_str}", true, true, "dotted", "{colo
                 f'MarkerMgr.markerEquatorial("{ra_str}", "{dec_str}", '
                 f'true, true, "{style}", "{use_color}", {size}, false, 0, true);'
             )
+            if label:
+                # 为兼容不同版本的脚本接口，这里尝试多种方式创建等经纬度文本标签
+                script += (
+                    f"\ntry {{\n"
+                    f"  // 优先: 直接在赤道坐标处放置文本标签\n"
+                    f"  LabelMgr.labelEquatorial(\"{label}\", \"{ra_str}\", \"{dec_str}\", true, 14, \"{use_color}\");\n"
+                    f"}} catch (e) {{\n"
+                    f"  try {{\n"
+                    f"    // 兼容: 一些版本可能采用(ra, dec, text)参数顺序或无颜色参数\n"
+                    f"    LabelMgr.labelEquatorial(\"{ra_str}\", \"{dec_str}\", \"{label}\", true);\n"
+                    f"  }} catch (e2) {{ /* 忽略标签失败以免影响标记 */ }}\n"
+                    f"}}\n"
+                )
             self.logger.info("执行Stellarium脚本(标记点):\n%s", script)
             resp = requests.post(f"{self.api_url}/scripts/direct", data={"code": script}, timeout=2)
             if resp.status_code == 200:
-                self.logger.debug(f"✓ 已标记点 RA={ra_deg:.3f}° DEC={dec_deg:.3f}° 颜色={use_color}")
+                self.logger.debug(
+                    f"✓ 已标记点 RA={ra_deg:.3f}° DEC={dec_deg:.3f}° 颜色={use_color}"
+                    + (f" 标签=\"{label}\"" if label else "")
+                )
                 return True
             self.logger.error(f"✗ 标记点失败: {resp.status_code}")
             return False
