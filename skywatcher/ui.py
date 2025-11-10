@@ -1482,7 +1482,39 @@ class SkyWatcherUI:
         obs_lon = getattr(self, 'obs_lon', None)
         alt_filter_enabled = (obs_lat is not None and obs_lon is not None)
         if not alt_filter_enabled:
-            self.log("! 未设置地点，无法筛选地平高度>5°，按原逻辑生成随机目标")
+            # 使用默认地点（北京）启用高度筛选，并更新UI显示
+            try:
+                default_name = "北京" if hasattr(self, "_preset_locations") and "北京" in self._preset_locations else list(self._preset_locations.keys())[0]
+                lat, lon = self._preset_locations[default_name]
+            except Exception:
+                default_name, lat, lon = "默认", 39.9, 116.4
+            self.obs_lat, self.obs_lon = lat, lon
+            self.obs_loc_name = default_name
+            alt_filter_enabled = True
+            # 更新UI变量显示（放入主线程）
+            if hasattr(self, "root"):
+                try:
+                    if hasattr(self, "env_loc_var"):
+                        self.root.after(0, lambda: self.env_loc_var.set(default_name))
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self, "env_tz_var"):
+                        self.root.after(0, lambda: self.env_tz_var.set("+8"))
+                except Exception:
+                    pass
+            info_msg = f"! 未设置地点，已使用默认地点：{default_name} (lat={lat:.4f}, lon={lon:.4f})"
+            try:
+                if hasattr(self, 'gps_label') and hasattr(self, 'root'):
+                    ns = 'N' if lat >= 0 else 'S'
+                    ew = 'E' if lon >= 0 else 'W'
+                    text = f"{abs(lat):.4f}°{ns}, {abs(lon):.4f}°{ew}"
+                    self.root.after(0, lambda t=text: self.gps_label.config(text=t))
+            except Exception:
+                pass
+
+            self.log(info_msg)
+            print(info_msg, flush=True)
 
         for i in range(count):
             if not self.random_goto_running:
@@ -1512,7 +1544,7 @@ class SkyWatcherUI:
                 self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° (地平高度≈{alt_deg:.2f}°，方位≈{az_deg:.2f}°) ...")
             else:
                 self.log(f"[{i+1}/{count}] 随机GOTO到 RA={ra_deg:.2f}°, DEC={dec_deg:.2f}° ...")
-            # 基础参数输出
+            # 基础参数输出（日志 + 控制台）
             try:
                 tz_hours = int(self.env_tz_var.get()) if hasattr(self, 'env_tz_var') else 0
             except Exception:
@@ -1530,10 +1562,10 @@ class SkyWatcherUI:
                 gps_str = "未知"
             alt_str = f"{alt_deg:.2f}°" if alt_filter_enabled else "N/A"
             az_str  = f"{az_deg:.2f}°" if alt_filter_enabled else "N/A"
-            self.log(
-                f"基础参数：地点={loc_name or '未知'} | GPS={gps_str} | 时间={dt_local.isoformat()} | 时区=UTC{int(tz_hours):+d} | "
-                f"目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 高度={alt_str} | 方位={az_str}"
-            )
+            base_msg = (f"基础参数：地点={loc_name or '未知'} | GPS={gps_str} | 时间={dt_local.isoformat()} | 时区=UTC{int(tz_hours):+d} | "
+                        f"目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 高度={alt_str} | 方位={az_str}")
+            self.log(base_msg)
+            print(base_msg, flush=True)
 
 
             # 在Stellarium中标记该目标点（先切换到新的颜色以便区分）
@@ -1567,12 +1599,21 @@ class SkyWatcherUI:
                         self.current_ra, self.current_dec = pos
                 if cra is not None and cdec is not None:
                     sep = self._angular_sep_deg(cra, cdec, ra_deg, dec_deg)
+                    # 分别计算 RA/DEC 的差值（RA 取最小环差）
+                    dra = abs(((cra - ra_deg + 180.0) % 360.0) - 180.0)
+                    ddec = abs(cdec - dec_deg)
                     now = time.time()
                     if sep <= THRESHOLD:
-                        self.log(f"  ✓ 已到达：当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 差值≈{sep:.2f}°")
+                        msg = (f"  ✓ 已到达：当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | "
+                               f"ΔRA≈{dra:.2f}° ΔDEC≈{ddec:.2f}° (总角距≈{sep:.2f}°)")
+                        self.log(msg)
+                        print(msg, flush=True)
                         break
                     if now - last_log_t >= 2.5:
-                        self.log(f"  … 当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | 差值≈{sep:.2f}°，继续等待(<{THRESHOLD}°)")
+                        msg = (f"  … 当前 RA={cra:.2f}° DEC={cdec:.2f}° | 目标 RA={ra_deg:.2f}° DEC={dec_deg:.2f}° | "
+                               f"ΔRA≈{dra:.2f}° ΔDEC≈{ddec:.2f}° (总角距≈{sep:.2f}°)，继续等待(<{THRESHOLD}°)")
+                        self.log(msg)
+                        print(msg, flush=True)
                         last_log_t = now
                 time.sleep(0.5)
                 if time.time() - start_t > MAX_WAIT_S:
