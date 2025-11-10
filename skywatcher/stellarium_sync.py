@@ -533,7 +533,8 @@ try { if (MarkerMgr && MarkerMgr.deleteByType) {
             else:
                 dt_utc = dt.astimezone(timezone.utc)
             jd = self._datetime_to_julian_day(dt_utc)
-            resp = requests.post(f"{self.api_url}/main/time", data={"time": str(jd), "timerate": "0"}, timeout=2)
+            # 仅设置时间，不修改timerate，避免意外暂停时间流
+            resp = requests.post(f"{self.api_url}/main/time", data={"time": str(jd)}, timeout=2)
             ok = (resp.status_code == 200)
             if ok:
                 self.logger.info(f"✓ Stellarium时间已设置: JD={jd:.6f} (UTC {dt_utc.isoformat()})")
