@@ -181,6 +181,7 @@ class SkyWatcherUI:
         ttk.Label(status_frame, text="Stellarium:").grid(row=0, column=2, sticky=tk.W, padx=20)
         self.stellarium_status = ttk.Label(status_frame, text="未连接", foreground="red")
         self.stellarium_status.grid(row=0, column=3, sticky=tk.W, padx=10)
+
         # 串口选择/连接行
         port_row = 1
         ttk.Label(status_frame, text="端口:").grid(row=port_row, column=0, sticky=tk.W, pady=(6, 0))
@@ -191,12 +192,36 @@ class SkyWatcherUI:
         ttk.Button(status_frame, text="连接", command=self.connect_selected_port).grid(row=port_row, column=3, sticky=tk.W, padx=6, pady=(6, 0))
         ttk.Button(status_frame, text="断开", command=self.disconnect_serial).grid(row=port_row, column=4, sticky=tk.W, padx=6, pady=(6, 0))
 
+        # 命令发送间隙配置（毫秒）
+        interval_row = 2
+        ttk.Label(status_frame, text="命令间隙(ms):").grid(row=interval_row, column=0, sticky=tk.W, pady=(6, 0))
+        self.cmd_interval_var = tk.StringVar(value="100")
+        self.cmd_interval_spin = ttk.Spinbox(
+            status_frame, from_=0, to=5000, increment=10,
+            textvariable=self.cmd_interval_var, width=8
+        )
+        self.cmd_interval_spin.grid(row=interval_row, column=1, sticky=tk.W, pady=(6, 0))
+        ttk.Button(status_frame, text="应用", command=self.apply_cmd_interval).grid(
+            row=interval_row, column=2, sticky=tk.W, padx=6, pady=(6, 0)
+        )
+
         # 初始化端口列表与默认值
         try:
             cfg = load_config()
             saved_port = cfg.get('serial_port')
+            saved_cmd_interval = int(cfg.get('cmd_interval_ms', 100))
         except Exception:
             saved_port = None
+            saved_cmd_interval = 100
+
+        # 优先使用当前 SynScan 实例上的配置，其次是配置文件
+        if getattr(self, "synscan", None) is not None and hasattr(self.synscan, "command_interval_ms"):
+            try:
+                saved_cmd_interval = int(getattr(self.synscan, "command_interval_ms", saved_cmd_interval))
+            except Exception:
+                pass
+        self.cmd_interval_var.set(str(saved_cmd_interval))
+
         self.refresh_serial_ports(pref_port=saved_port)
 
 
@@ -670,9 +695,22 @@ class SkyWatcherUI:
         except Exception:
             pass
 
+        # 读取当前 UI 中配置的命令间隙
+        interval_ms = 100
+        if hasattr(self, 'cmd_interval_var'):
+            raw_interval = (self.cmd_interval_var.get() or '').strip()
+            try:
+                interval_ms = int(raw_interval)
+            except Exception:
+                interval_ms = 100
+        if interval_ms < 0:
+            interval_ms = 0
+        if hasattr(self, 'cmd_interval_var'):
+            self.cmd_interval_var.set(str(interval_ms))
+
         from synscan import SynScanProtocol
         try:
-            new_syn = SynScanProtocol(port, 9600)
+            new_syn = SynScanProtocol(port, 9600, command_interval_ms=interval_ms)
             if new_syn.connect():
                 self.synscan = new_syn
                 self.update_status(True, getattr(self, 'stellarium_sync', None) is not None)
@@ -682,6 +720,7 @@ class SkyWatcherUI:
                     cfg = load_config()
                     cfg['serial_port'] = port
                     cfg['baudrate'] = 9600
+                    cfg['cmd_interval_ms'] = interval_ms
                     save_config(cfg)
                     self.log("✓ 已保存到配置文件")
                 except Exception:
@@ -690,6 +729,35 @@ class SkyWatcherUI:
                 self.log("✗ 串口连接失败")
         except Exception as e:
             self.log(f"✗ 串口连接异常: {e}")
+
+    def apply_cmd_interval(self):
+        """应用命令发送间隙配置（毫秒）"""
+        raw = (getattr(self, 'cmd_interval_var', None).get() if hasattr(self, 'cmd_interval_var') else '').strip()
+        try:
+            value = int(raw)
+        except Exception:
+            value = 100
+        if value < 0:
+            value = 0
+        # 更新UI显示为规范化后的数值
+        if hasattr(self, 'cmd_interval_var'):
+            self.cmd_interval_var.set(str(value))
+
+        # 更新当前 SynScan 实例（若存在），实时生效
+        if getattr(self, 'synscan', None) is not None:
+            try:
+                setattr(self.synscan, 'command_interval_ms', value)
+            except Exception as e:
+                self.log(f"✗ 应用命令间隙到 SynScan 失败: {e}")
+
+        # 保存到配置文件
+        try:
+            cfg = load_config()
+            cfg['cmd_interval_ms'] = value
+            save_config(cfg)
+            self.log(f"✓ 已应用命令间隙: {value} ms")
+        except Exception:
+            self.log("✗ 保存命令间隙到配置文件失败")
 
     def disconnect_serial(self):
         """断开当前串口连接"""

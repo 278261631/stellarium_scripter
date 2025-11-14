@@ -1,5 +1,6 @@
 {
   "serial_port": "COM5",
   "baudrate": 9600,
-  "stellarium_url": "http://127.0.0.1:8090"
+  "stellarium_url": "http://127.0.0.1:8090",
+  "cmd_interval_ms": 300
 }

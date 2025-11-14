@@ -35,6 +35,7 @@ def main():
     default_port = cfg.get('serial_port', 'COM5')
     default_baud = int(cfg.get('baudrate', 9600))
     default_stel = cfg.get('stellarium_url', 'http://127.0.0.1:8090')
+    default_cmd_interval_ms = int(cfg.get('cmd_interval_ms', 100))
 
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='SkyWatcher设备监控程序')
@@ -52,6 +53,8 @@ def main():
     parser.add_argument('--lat', type=float, help='观测地纬度(度, 北纬为正)')
     parser.add_argument('--lon', type=float, help='观测地经度(度, 东经为正)')
     parser.add_argument('--elev', type=int, default=0, help='海拔(米), 默认0')
+    parser.add_argument('--cmd-interval-ms', type=int, default=default_cmd_interval_ms,
+                        help='命令发送间隙(毫秒), 默认100ms')
 
     args = parser.parse_args()
 
@@ -60,6 +63,7 @@ def main():
         cfg['serial_port'] = args.port
         cfg['baudrate'] = int(args.baudrate)
         cfg['stellarium_url'] = args.stellarium
+        cfg['cmd_interval_ms'] = int(args.cmd_interval_ms)
         save_config(cfg)
     except Exception:
         pass
@@ -77,7 +81,7 @@ def main():
     # 连接串口
     if not args.no_serial:
         logger.info(f"连接到串口: {args.port}, 波特率: {args.baudrate}")
-        synscan = SynScanProtocol(args.port, args.baudrate)
+        synscan = SynScanProtocol(args.port, args.baudrate, command_interval_ms=args.cmd_interval_ms)
         # 若通过参数提供了经纬度，则在连接前把值写入对象，connect() 会在初始化轴前下发:Z1
         if args.lat is not None and args.lon is not None:
             synscan.latitude = args.lat

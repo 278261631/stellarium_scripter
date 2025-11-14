@@ -39,7 +39,7 @@ class SynScanProtocol:
     DEFAULT_LON = 116.3830
     DEFAULT_ELEVATION = 0
 
-    def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0):
+    def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0, command_interval_ms: int = 100):
         """
         初始化SynScan协议
 
@@ -47,11 +47,16 @@ class SynScanProtocol:
             port: 串口名称 (如 'COM3' 或 '/dev/ttyUSB0')
             baudrate: 波特率 (默认9600)
             timeout: 超时时间(秒)
+            command_interval_ms: 命令发送间隙(毫秒), 用于限制连续命令的速率, 默认100ms
         """
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.serial: Optional[serial.Serial] = None
+
+        # 命令发送节流配置
+        self.command_interval_ms = command_interval_ms
+        self._last_command_time: float = 0.0
 
         # 设置日志
         self.logger = logging.getLogger('SynScan')
@@ -179,6 +184,20 @@ class SynScanProtocol:
             return None
 
         try:
+            # 命令间隙节流（毫秒配置），避免连续发送过快
+            interval_ms = getattr(self, "command_interval_ms", 100)
+            if interval_ms and interval_ms > 0:
+                interval_s = interval_ms / 1000.0
+                last = getattr(self, "_last_command_time", 0.0)
+                if last > 0:
+                    now = time.time()
+                    delta = now - last
+                    if delta < interval_s:
+                        sleep_s = interval_s - delta
+                        if sleep_s > 0:
+                            self.logger.debug(f"命令间隙节流: sleep {sleep_s:.3f}s")
+                            time.sleep(sleep_s)
+
             # 构建命令: :命令轴数据\r
             cmd = f":{command}{axis}{data}\r"
             self.logger.debug(f"发送命令: {repr(cmd)}")
@@ -188,6 +207,8 @@ class SynScanProtocol:
 
             # 发送命令
             self.serial.write(cmd.encode('ascii'))
+            # 记录本次发送时间
+            self._last_command_time = time.time()
 
             # 读取响应 (格式: =数据\r 或 !\r)
             response = ""
