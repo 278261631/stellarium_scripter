@@ -299,118 +299,6 @@ class SynScanProtocol:
         self.logger.debug(f"LST计算: 经度={lon_deg:.4f}°, GMST={gmst:.6f}°, LST={lst_deg:.6f}° -> {lst_hours:.6f}h")
         return lst_hours
 
-    def encoder_to_hours(self, step: int, initstep: int) -> float:
-        """
-        将编码器步数转换为时角(小时)。
-        参考EQMOD::EncoderToHours逻辑，考虑半球与6小时偏移。
-        """
-        totalstep = self.STEPS_PER_REVOLUTION
-        if step > initstep:
-            base_hours = (float(step - initstep) / float(totalstep)) * 24.0
-            base_hours = 24.0 - base_hours
-        else:
-            base_hours = (float(initstep - step) / float(totalstep)) * 24.0
-        if self.hemisphere == 'NORTH':
-            result = self.range24(base_hours + 6.0)
-        else:
-            result = self.range24((24.0 - base_hours) + 6.0)
-        self.logger.debug(f"RA编码->HA: step={step}, zero={initstep}, total={totalstep}, base={base_hours:.6f}h, hemi={self.hemisphere}, +6h后={result:.6f}h")
-        return result
-
-    def encoder_to_degrees(self, step: int, initstep: int) -> float:
-        """
-        将编码器步数转换为0-360°。
-        参考EQMOD::EncoderToDegrees逻辑，考虑半球翻转。
-        """
-        totalstep = self.STEPS_PER_REVOLUTION
-        if step > initstep:
-            base_deg = (float(step - initstep) / float(totalstep)) * 360.0
-        else:
-            base_deg = (float(initstep - step) / float(totalstep)) * 360.0
-            base_deg = 360.0 - base_deg
-        if self.hemisphere == 'NORTH':
-            result = self.range360(base_deg)
-        else:
-            result = self.range360(360.0 - base_deg)
-        self.logger.debug(f"DEC编码->raw度: step={step}, zero={initstep}, total={totalstep}, base={base_deg:.6f}°, hemi={self.hemisphere}, 变换后={result:.6f}°")
-        return result
-
-    def encoders_to_radec(self, ra_step: int, dec_step: int) -> Tuple[float, float]:
-        """
-        依据编码器步数、半球和当前LST，计算RA(度)与DEC(度)。
-        参考EQMOD::EncodersToRADec。
-        """
-        self.logger.debug(f"j转换: 输入步数 RA={ra_step}, DEC={dec_step}")
-        # 1) 编码器->时角/度
-        ha_hours = self.encoder_to_hours(ra_step, self.zero_ra_encoder)
-        dec_raw_deg = self.encoder_to_degrees(dec_step, self.zero_dec_encoder)
-        self.logger.debug(f"中间: HA={ha_hours:.6f}h, DEC_raw={dec_raw_deg:.6f}°")
-        # 2) LST(小时)
-        lst_hours = self.compute_lst_hours()
-        self.logger.debug(f"LST={lst_hours:.6f}h")
-        # 3) RA(小时) = LST - HA
-        ra_hours = lst_hours - ha_hours
-        self.logger.debug(f"RA(h)初始: LST-HA={ra_hours:.6f}h")
-        # 4) 按DEC位置与半球对RA进行跨子午线的12小时修正
-        adjust = 0.0
-        if self.hemisphere == 'NORTH':
-            if (dec_raw_deg > 90.0) and (dec_raw_deg <= 270.0):
-                adjust = -12.0
-        else:
-            if (dec_raw_deg <= 90.0) or (dec_raw_deg > 270.0):
-                adjust = 12.0
-        if adjust != 0.0:
-            ra_hours += adjust
-        self.logger.debug(f"RA跨子午线修正: hemi={self.hemisphere}, DEC_raw={dec_raw_deg:.6f}°, 调整={adjust:+.1f}h, 结果={ra_hours:.6f}h")
-        # 5) 归一化
-        ha_norm = self.range_ha(ha_hours)
-        ra_norm = self.range24(ra_hours)
-        dec_deg = self.range_dec(dec_raw_deg)
-        ra_deg = ra_norm * 15.0
-        self.logger.debug(f"归一化: HA={ha_norm:.6f}h, RA={ra_norm:.6f}h ({ra_deg:.6f}°), DEC={dec_deg:.6f}°")
-        return ra_deg, dec_deg
-
-
-
-
-    def get_position(self, axis: str) -> Optional[int]:
-        """
-        获取轴位置(原始步进值)
-
-        Args:
-            axis: 轴 ('1'=RA, '2'=DEC)
-
-        Returns:
-            位置步进值,失败返回None
-        """
-        response = self.send_command(axis, 'j')  # 'j' = 获取位置
-        if not response:
-            self.logger.error(f"获取位置失败 - 轴:{axis}, 无响应或响应为空")
-            return None
-        axis_name = 'RA' if axis == self.AXIS_RA else 'DEC'
-        s = response.strip()
-        # 1) 先尝试新固件：十进制度字符串
-        try:
-            deg = float(s)
-            if axis == self.AXIS_RA:
-                deg = self.range360(deg)
-                steps = int((deg / 360.0) * self.STEPS_PER_REVOLUTION) % self.STEPS_PER_REVOLUTION
-            else:
-                # DEC [-90,90] → 步数比例到 [-1/4, 1/4] 圈；这里只为日志用途，按度线性映射
-                clamped = max(-90.0, min(90.0, deg))
-                steps = int((clamped / 360.0) * self.STEPS_PER_REVOLUTION)
-            self.logger.debug(f"j[{axis_name}] 十进制度='{s}', 估算步数={steps}")
-            return steps
-        except ValueError:
-            pass
-        # 2) 回退：旧固件小端HEX(6位)
-        try:
-            position = self.parse_little_endian_hex(s)
-            self.logger.debug(f"j[{axis_name}] 原始响应='{s}', 解析步数={position} (0x{position:06X})")
-            return position
-        except ValueError as e:
-            self.logger.error(f"解析位置失败 - 轴:{axis}, 响应:'{s}', 错误:{e}")
-            return None
 
     def steps_to_degrees(self, steps: int) -> float:
         """
@@ -469,8 +357,8 @@ class SynScanProtocol:
         """
         获取当前RA/DEC位置(度)
 
-        优先使用新固件 j1/j2 直接返回的十进制度；
-        若不可用，则回退到旧协议: 读取步进值并转换为赤道坐标。
+        仅使用新固件 j1/j2 直接返回的十进制度。
+        读取失败时返回 None（不再使用编码器步进回退逻辑）。
 
         Returns:
             (RA, DEC) 元组,单位为度,失败返回None
@@ -486,19 +374,11 @@ class SynScanProtocol:
             self.logger.info(f"坐标(j直读): RA={ra_deg:.6f}°, DEC={dec_deg:.6f}°")
             return (ra_deg, dec_deg)
 
-        # 回退: 旧固件-读取步进并转换
-        ra_steps = self.get_position(self.AXIS_RA)
-        dec_steps = self.get_position(self.AXIS_DEC)
-        if ra_steps is None:
-            self.logger.error("获取RA位置失败")
-        if dec_steps is None:
-            self.logger.error("获取DEC位置失败")
-        if ra_steps is not None and dec_steps is not None:
-            ra_deg, dec_deg = self.encoders_to_radec(ra_steps, dec_steps)
-            self.current_ra = ra_deg
-            self.current_dec = dec_deg
-            self.logger.info(f"坐标(j转换): RA={ra_deg:.6f}°, DEC={dec_deg:.6f}°")
-            return (ra_deg, dec_deg)
+        # 若直读失败则直接返回None（不再使用编码器回退逻辑）
+        if ra_deg is None:
+            self.logger.error("获取RA坐标失败(j直读)")
+        if dec_deg is None:
+            self.logger.error("获取DEC坐标失败(j直读)")
         return None
 
     def get_version(self) -> Optional[str]:
